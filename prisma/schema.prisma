@@ -1,0 +1,67 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Website {
+  id          String   @id @default(cuid())
+  name        String
+  url         String
+  selectors   String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  posts       Post[]
+  logs        Log[]
+}
+
+model Post {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  title        String
+  description  String
+  content      String?  @db.Text
+  author       String
+  authorImage  String?
+  date         DateTime
+  readingTime String?
+  category     String?
+  tags         String   @default("[]")
+  thumbnail    String?
+  coverImage   String?
+  sourceUrl    String?
+  websiteId    String
+  website      Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([websiteId])
+  @@index([slug])
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  websiteId String
+  website   Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  message   String   @db.Text
+  status    String
+  createdAt DateTime @default(now())
+
+  @@index([websiteId])
+}
+
+model Ad {
+  id        String   @id @default(cuid())
+  title     String
+  imageUrl  String?
+  linkUrl   String
+  placement String   // e.g. 'sidebar', 'inline', 'footer'
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
