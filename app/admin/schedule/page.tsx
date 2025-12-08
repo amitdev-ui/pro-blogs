@@ -286,7 +286,7 @@ export default function SchedulePage() {
             <div>
               <p className="font-medium text-[#111827] mb-1">No Manual Setup Required</p>
               <p>
-                Once your server is running, the scraper starts automatically. You don't need to visit this page or configure anything.
+                Once your server is running, the scraper starts automatically. You don&apos;t need to visit this page or configure anything.
                 Just keep your server running and new content will appear automatically.
               </p>
             </div>
