@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "postinstall": "prisma generate",
     "seed": "tsx scripts/seed-websites.ts",
     "test-scraper": "tsx scripts/test-scraper.ts",
     "update-websites": "tsx scripts/update-websites.ts",
