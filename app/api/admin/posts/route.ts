@@ -14,13 +14,6 @@ export async function GET(request: NextRequest) {
 
     const posts = await prisma.post.findMany({
       where,
-      include: {
-        website: {
-          select: {
-            name: true,
-          },
-        },
-      },
       orderBy: { date: "desc" },
       take: limit,
       select: {
