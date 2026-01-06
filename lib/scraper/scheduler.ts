@@ -5,7 +5,9 @@ import { BlogScraper } from "./scraper";
 import { updateProgress } from "./progress-store";
 import { cleanArticleContent } from "./content-cleaner";
 import { rewriteForSEO } from "./seo-rewriter";
-import { getPageLimit, increasePageLimit } from "./page-limit-manager";
+import { getPageLimit, increasePageLimit, SCHEDULED_PAGES_PER_RUN } from "./page-limit-manager";
+import { getNextWebsiteIndex, advanceToNextWebsite } from "./scheduler-rotation";
+import { getCurrentOffset, advanceOffset } from "./pagination-tracker";
 
 interface ScheduledTask {
   task: CronTask;
@@ -38,57 +40,75 @@ async function startScheduledScrapingForAll(
       throw new Error("No websites found");
     }
 
-    // Create cron task that runs all websites sequentially
+    // Create cron task that processes ONE website per run (500 pages each)
+    // Rotates through websites sequentially each scheduled run
     const task = cron.schedule(
       schedule,
       async () => {
-        console.log(`[Scheduler] Running scheduled scrape for all ${websites.length} websites...`);
+        // Get all websites fresh (in case new ones were added)
+        const currentWebsites = await prisma.website.findMany({
+          orderBy: { name: "asc" },
+        });
         
-        // Run scrapers one by one (sequentially)
-        for (let i = 0; i < websites.length; i++) {
-          const website = websites[i];
-          const sessionId = `scheduled-all-${website.id}-${Date.now()}`;
-          
-          try {
-            console.log(`[Scheduler] [${i + 1}/${websites.length}] Scraping ${website.name}...`);
-            
-            // Parse selectors
-            let selectors;
-            try {
-              selectors =
-                typeof website.selectors === "string"
-                  ? JSON.parse(website.selectors)
-                  : website.selectors;
-            } catch {
-              selectors = {};
-            }
-
-            // Get dynamic page limit for this website
-            const pageLimit = getPageLimit(website.id, 'main');
-            
-            const config = {
-              name: website.name,
-              url: website.url,
-              selectors,
-              pagination: {
-                type: "next-page" as const,
-                maxPages: pageLimit,
-              },
-            };
-
-            await runScheduledScrape(sessionId, website.id, config);
-            
-            // Small delay between websites to be respectful
-            if (i < websites.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
-            }
-          } catch (error) {
-            console.error(`[Scheduler] Error scraping ${website.name}:`, error);
-            // Continue with next website even if one fails
-          }
+        if (currentWebsites.length === 0) {
+          console.log(`[Scheduler] ⚠️ No websites found to scrape.`);
+          return;
         }
         
-        console.log(`[Scheduler] Completed scraping all ${websites.length} websites`);
+        // Get the next website in rotation (one website per scheduled run)
+        const websiteIndex = getNextWebsiteIndex(currentWebsites.length);
+        const website = currentWebsites[websiteIndex];
+        const sessionId = `scheduled-all-${website.id}-${Date.now()}`;
+        
+        console.log(`[Scheduler] ⚠️ AUTO-SCHEDULER: Processing website ${websiteIndex + 1}/${currentWebsites.length}: ${website.name}`);
+        console.log(`[Scheduler] ⚠️ This scheduled run will process 500 pages of ${website.name} only`);
+        console.log(`[Scheduler] ⚠️ Next scheduled run will process the next website in sequence`);
+        
+        try {
+          // Parse selectors
+          let selectors;
+          try {
+            selectors =
+              typeof website.selectors === "string"
+                ? JSON.parse(website.selectors)
+                : website.selectors;
+          } catch {
+            selectors = {};
+          }
+
+          // Fixed limit: exactly 500 pages per website per scheduled run
+          // This ensures each website gets processed in sequence, not stuck on one
+          // Get the current offset (how many pages already scraped) to continue from where we left off
+          const currentOffset = getCurrentOffset(website.id);
+          const config = {
+            name: website.name,
+            url: website.url,
+            selectors,
+            pagination: {
+              type: "next-page" as const,
+              maxPages: SCHEDULED_PAGES_PER_RUN, // Always 500 pages per scheduled run
+            },
+          };
+
+          console.log(`[Scheduler] Website ${website.name} - Starting from page offset: ${currentOffset} (will scrape pages ${currentOffset + 1} to ${currentOffset + SCHEDULED_PAGES_PER_RUN})`);
+          
+          await runScheduledScrape(sessionId, website.id, config, currentOffset);
+          
+          // Advance offset after successful scraping (add 500 pages)
+          advanceOffset(website.id);
+          
+          // Move to next website for next scheduled run
+          advanceToNextWebsite(currentWebsites.length);
+          
+          const nextWebsiteIndex = (websiteIndex + 1) % currentWebsites.length;
+          const nextWebsite = currentWebsites[nextWebsiteIndex];
+          console.log(`[Scheduler] ✓ Completed processing ${website.name} (${SCHEDULED_PAGES_PER_RUN} pages). Next scheduled run will process: ${nextWebsite.name}`);
+        } catch (error) {
+          console.error(`[Scheduler] Error scraping ${website.name}:`, error);
+          // Still advance to next website even if this one fails
+          advanceToNextWebsite(currentWebsites.length);
+        }
+        
         updateScheduleStatus("all");
       },
       {
@@ -307,7 +327,8 @@ function getNextRunTime(cronExpression: string): Date | undefined {
 export async function runScheduledScrape(
   sessionId: string,
   websiteId: string,
-  config: any
+  config: any,
+  startOffset: number = 0
 ) {
   try {
     // Get dynamic page limit if not provided in config
@@ -334,7 +355,8 @@ export async function runScheduledScrape(
     });
 
     const scraper = new BlogScraper(config);
-    const posts = await scraper.scrapePage(config.url);
+    // Pass startOffset to continue from where we left off (e.g., page 501 if we've already done 500)
+    const posts = await scraper.scrapePage(config.url, startOffset);
 
     updateProgress(sessionId, {
       message: `Found ${posts.length} posts. Processing...`,
@@ -428,20 +450,23 @@ export async function runScheduledScrape(
         }
 
         // Enforce minimum content length (only save real articles)
-        // Reduced from 350 to 200 characters to match manual scraper
+        // Primary rule: Articles must be at least 550 words (good for SEO)
         const contentToUse = fullContent || post.content || "";
-        const plainTextLength = contentToUse.replace(/<[^>]*>/g, "").trim().length;
+        const plainText = contentToUse.replace(/<[^>]*>/g, "").trim();
+        const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
         
-        if (!contentToUse || plainTextLength < 200) {
+        const MIN_WORDS_REQUIRED = 550;
+        
+        if (!contentToUse || wordCount < MIN_WORDS_REQUIRED) {
           skippedShort++;
           
           // Log detailed information about why it was skipped
           if (skippedShort === 1 || skippedShort % 50 === 0) {
             console.log(`[Scheduler] Skipped ${skippedShort} posts (too short).`);
             if (skippedShort === 1) {
-              console.log(`[Scheduler] Example: "${post.title.substring(0, 50)}..." - Content length: ${plainTextLength} chars`);
+              console.log(`[Scheduler] Example: "${post.title.substring(0, 50)}..." - Word count: ${wordCount} words (minimum required: ${MIN_WORDS_REQUIRED} words)`);
               console.log(`[Scheduler] Source URL: ${post.sourceUrl || "N/A"}`);
-              console.log(`[Scheduler] Full content scraping ${contentScrapingFailed ? "FAILED" : "succeeded but content too short"}`);
+              console.log(`[Scheduler] Full content scraping ${contentScrapingFailed ? "FAILED" : "succeeded but content too short (need " + MIN_WORDS_REQUIRED + "+ words)"}`);
             }
           }
           

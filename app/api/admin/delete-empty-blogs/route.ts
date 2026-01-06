@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { keepOriginal = true, minContentLength = 350, deleteAll = false } = body;
+    // Default to 550 words minimum (matching scraper requirement - good for SEO)
+    const { keepOriginal = true, minWords = 550, deleteAll = false } = body;
 
     // If deleteAll is true, remove ALL posts (no filters)
     if (deleteAll) {
@@ -40,11 +41,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Identify empty posts (no content or content < minContentLength)
-    // Use plain text length (strip HTML tags) to match scraper logic
+    // Identify empty posts (no content or content < minWords)
+    // Use word count to match scraper logic (550 words minimum - good for SEO)
     const emptyPosts = allPosts.filter((post) => {
-      const plainTextLength = (post.content || "").replace(/<[^>]*>/g, "").trim().length;
-      return plainTextLength < minContentLength;
+      if (!post.content) return true;
+      const plainText = post.content.replace(/<[^>]*>/g, "").trim();
+      const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+      return wordCount < minWords;
     });
 
     // If keepOriginal is true, keep the first 82 posts (oldest)

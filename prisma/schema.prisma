@@ -61,6 +61,9 @@ model Ad {
   title     String
   imageUrl  String?
   linkUrl   String
+  adCode    String?  @db.Text // HTML/JS ad code for automatic dimension detection
+  width     Int?     // Detected or specified width in pixels
+  height    Int?     // Detected or specified height in pixels
   placement String   // e.g. 'sidebar', 'inline', 'footer'
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())

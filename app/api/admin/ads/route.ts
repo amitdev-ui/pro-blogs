@@ -25,30 +25,96 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, imageUrl, linkUrl, placement, isActive = true } = body;
+    const { title, imageUrl, linkUrl, adCode, width, height, placement, isActive = true } = body;
 
-    if (!title || !linkUrl || !placement) {
+    console.log("Received ad creation request:", { 
+      title: title?.substring(0, 50), 
+      placement, 
+      adCodeLength: adCode?.length,
+      hasAdCode: !!adCode 
+    });
+
+    if (!title || !title.trim()) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Title is required" },
         { status: 400 }
       );
     }
 
-    const ad = await prisma.ad.create({
-      data: {
-        title,
-        imageUrl: imageUrl || null,
-        linkUrl,
-        placement,
-        isActive: Boolean(isActive),
-      },
+    if (!placement || !placement.trim()) {
+      return NextResponse.json(
+        { error: "Placement is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!adCode || !adCode.trim()) {
+      return NextResponse.json(
+        { error: "Ad code is required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate and prepare data
+    const adData: any = {
+      title: title.trim(),
+      placement: placement.trim(),
+      adCode: adCode.trim(),
+      linkUrl: (linkUrl && linkUrl.trim() !== "") ? linkUrl.trim() : "#",
+      imageUrl: null,
+      isActive: Boolean(isActive),
+    };
+
+    // Add optional fields only if provided
+    if (width !== undefined && width !== null && width !== "") {
+      const parsedWidth = typeof width === 'string' ? parseInt(width) : width;
+      if (!isNaN(parsedWidth) && parsedWidth > 0) {
+        adData.width = parsedWidth;
+      }
+    }
+    
+    if (height !== undefined && height !== null && height !== "") {
+      const parsedHeight = typeof height === 'string' ? parseInt(height) : height;
+      if (!isNaN(parsedHeight) && parsedHeight > 0) {
+        adData.height = parsedHeight;
+      }
+    }
+
+    console.log("Creating ad with data:", { 
+      ...adData, 
+      adCode: adData.adCode.substring(0, 100) + "..." 
     });
 
+    const ad = await prisma.ad.create({
+      data: adData,
+    });
+
+    console.log("Ad created successfully:", ad.id);
     return NextResponse.json({ ad }, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating ad:", error);
+    console.error("Error details:", {
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta,
+      stack: error?.stack?.substring(0, 500)
+    });
+    
+    let errorMessage = "Failed to create ad";
+    if (error?.message) {
+      errorMessage = error.message;
+    } else if (error?.code === 'P2002') {
+      errorMessage = "An ad with this title already exists";
+    } else if (error?.code === 'P2003') {
+      errorMessage = "Invalid data provided";
+    }
+    
     return NextResponse.json(
-      { error: "Failed to create ad" },
+      { 
+        error: errorMessage, 
+        details: error?.code || "UNKNOWN_ERROR",
+        message: error?.message 
+      },
       { status: 500 }
     );
   }

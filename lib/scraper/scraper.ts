@@ -18,7 +18,7 @@ export class BlogScraper {
     this.config = config;
   }
 
-  async scrapePage(url: string): Promise<ScrapedPost[]> {
+  async scrapePage(url: string, startOffset: number = 0): Promise<ScrapedPost[]> {
     const allPosts: ScrapedPost[] = []; // Declare outside try-catch for error recovery
     try {
       const maxPages = this.config.pagination?.maxPages || 10;
@@ -26,9 +26,90 @@ export class BlogScraper {
       let pageCount = 0;
       let consecutiveErrors = 0;
       const maxConsecutiveErrors = 3; // Stop after 3 consecutive errors
+      
+      // If we have an offset, we need to skip to that page first
+      // For page-number pagination, we can directly jump to the page
+      // For next-page pagination, we need to follow links until we reach the offset
+      let skippedPages = 0;
+      
+      // Skip to the starting offset for page-number pagination
+      if (startOffset > 0 && this.config.pagination?.type === "page-number") {
+        try {
+          const urlObj = new URL(currentUrl);
+          const currentPath = urlObj.pathname;
+          
+          // Check if URL already has /page/X/ pattern
+          const pageMatch = currentPath.match(/\/page\/(\d+)\/?$/);
+          if (pageMatch) {
+            // Replace with offset page
+            const startPage = parseInt(pageMatch[1]) + startOffset;
+            currentUrl = currentPath.replace(/\/page\/\d+\/?$/, `/page/${startPage}/`);
+            currentUrl = `${urlObj.origin}${currentUrl}${urlObj.search}`;
+          } else {
+            // Add page number to start from offset
+            const basePath = currentPath.endsWith('/') ? currentPath : currentPath + '/';
+            const startPage = startOffset + 1; // Start from page 1 if offset is 0
+            currentUrl = `${urlObj.origin}${basePath}page/${startPage}/${urlObj.search}`;
+          }
+          skippedPages = startOffset;
+          console.log(`[Pagination] Starting from offset: page ${startOffset + 1} (skipped ${startOffset} pages)`);
+        } catch (error) {
+          console.log(`[Pagination] Could not construct offset URL, starting from beginning: ${error}`);
+        }
+      } else if (startOffset > 0 && this.config.pagination?.type === "next-page") {
+        // For next-page pagination, we need to follow links to skip pages
+        // This is less efficient but necessary for sites without page numbers
+        console.log(`[Pagination] Next-page pagination: Need to skip ${startOffset} pages (this may take time)`);
+        // We'll skip pages in the loop below
+      }
 
       // Scrape multiple pages if pagination is configured
-      while (pageCount < maxPages) {
+      // For next-page pagination with offset, skip pages until we reach the offset
+      while ((this.config.pagination?.type === "next-page" && startOffset > 0 && skippedPages < startOffset) || pageCount < maxPages) {
+        // Skip pages for next-page pagination to reach offset
+        if (this.config.pagination?.type === "next-page" && startOffset > 0 && skippedPages < startOffset) {
+          try {
+            const html = await fetchHTML(currentUrl);
+            const $ = cheerio.load(html);
+            
+            // Find next page link
+            let nextPageUrl: string | undefined;
+            if (this.config.pagination.selector) {
+              const nextLink = $(this.config.pagination.selector).first().attr("href");
+              if (nextLink) {
+                try {
+                  nextPageUrl = new URL(nextLink, currentUrl).href;
+                } catch {
+                  if (nextLink.startsWith("/")) {
+                    try {
+                      const baseUrl = new URL(currentUrl);
+                      nextPageUrl = `${baseUrl.origin}${nextLink}`;
+                    } catch {}
+                  }
+                }
+              }
+            }
+            
+            if (nextPageUrl && nextPageUrl !== currentUrl) {
+              currentUrl = nextPageUrl;
+              skippedPages++;
+              if (skippedPages % 50 === 0) {
+                console.log(`[Pagination] Skipping pages to reach offset: ${skippedPages}/${startOffset} pages skipped`);
+              }
+              await new Promise(resolve => setTimeout(resolve, 500)); // Small delay while skipping
+              continue;
+            } else {
+              // No more pages to skip, start scraping from here
+              console.log(`[Pagination] Reached end while skipping. Starting scrape from page ${skippedPages + 1}`);
+              break;
+            }
+          } catch (error) {
+            console.log(`[Pagination] Error while skipping pages: ${error}. Starting scrape from current position.`);
+            break;
+          }
+        }
+        
+        // Normal scraping logic starts here
         let html: string;
         try {
           html = await fetchHTML(currentUrl);
@@ -230,7 +311,8 @@ export class BlogScraper {
         }
         
         // Log pagination progress for debugging
-        console.log(`[Pagination] Page ${pageCount + 1}/${maxPages}: Scraped ${pagePosts.length} posts from ${currentUrl}. Total so far: ${allPosts.length}. Next: ${nextPageUrl}`);
+        const actualPageNumber = startOffset + pageCount + 1;
+        console.log(`[Pagination] Page ${actualPageNumber} (offset: ${startOffset}, local: ${pageCount + 1}/${maxPages}): Scraped ${pagePosts.length} posts from ${currentUrl}. Total so far: ${allPosts.length}. Next: ${nextPageUrl}`);
 
         currentUrl = nextPageUrl;
         pageCount++;
@@ -239,7 +321,8 @@ export class BlogScraper {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
-      console.log(`[Pagination] Completed: Found ${allPosts.length} posts from ${pageCount} pages`);
+      const endingPage = startOffset + pageCount;
+      console.log(`[Pagination] Completed: Found ${allPosts.length} posts from ${pageCount} pages (starting from offset ${startOffset}, ending at page ${endingPage})`);
       return allPosts;
     } catch (error) {
       console.error(`Error scraping ${url}:`, error);
@@ -344,11 +427,44 @@ export class BlogScraper {
       
       if (link && !link.startsWith("http")) {
         try {
+          // Fix for CSS-Tricks: if baseUrl ends with /archives/ and link starts with /archives
+          // Remove duplicate path segments
+          const baseUrlObj = new URL(baseUrl);
+          if (link.startsWith("/")) {
+            // Absolute path from root
+            link = `${baseUrlObj.origin}${link}`;
+          } else {
+            // Relative path
           link = new URL(link, baseUrl).href;
+          }
+          
+          // Clean up double slashes in path (but preserve http://)
+          link = link.replace(/([^:]\/)\/+/g, "$1");
+          
+          // Fix specific CSS-Tricks issue: remove duplicate /archives paths
+          if (link.includes("css-tricks.com")) {
+            link = link.replace(/\/archives\/\/archives/g, "/archives");
+            link = link.replace(/\/archives\/archives/g, "/archives");
+          }
         } catch {
           link = baseUrl;
         }
       }
+      
+      // Validate the final URL
+      if (link) {
+        try {
+          const urlObj = new URL(link);
+          // Fix any remaining double slashes in path
+          urlObj.pathname = urlObj.pathname.replace(/\/+/g, "/");
+          link = urlObj.href;
+        } catch {
+          // Invalid URL, try to construct from title slug
+          const titleSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+          link = `${baseUrl}/${titleSlug}`;
+        }
+      }
+      
       if (!link || link === baseUrl) {
         // If still no valid link, try to construct from title slug
         const titleSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -528,15 +644,70 @@ export class BlogScraper {
    */
   async scrapeFullPost(url: string): Promise<{ content: string; featuredImage?: string }> {
     try {
-      const html = await fetchHTML(url);
+      // Validate and fix URL before fetching
+      let validUrl = url;
+      try {
+        const urlObj = new URL(url);
+        // Fix double slashes in path
+        urlObj.pathname = urlObj.pathname.replace(/\/+/g, "/");
+        validUrl = urlObj.href;
+        
+        // Fix specific CSS-Tricks issue: remove duplicate /archives paths
+        if (validUrl.includes("css-tricks.com")) {
+          validUrl = validUrl.replace(/\/archives\/\/archives/g, "/archives");
+          validUrl = validUrl.replace(/\/archives\/archives/g, "/archives");
+          // Remove trailing /archives if it's just the archives page (not a post)
+          if (validUrl.match(/\/archives\/?$/) && !validUrl.match(/\/archives\/[^\/]+\//)) {
+            console.log(`[CSS-Tricks] ⚠️ Warning: Invalid post URL detected (archives page, not a post): ${validUrl}`);
+            return { content: "", featuredImage: undefined };
+          }
+        }
+      } catch (urlError) {
+        console.error(`[Scraper] ❌ Invalid URL: ${url}`, urlError);
+        return { content: "", featuredImage: undefined };
+      }
+      
+      const html = await fetchHTML(validUrl);
       const $ = cheerio.load(html);
 
       // Detect if this is a TechCrunch URL
-      const isTechCrunch = url.includes("techcrunch.com");
+      const isTechCrunch = validUrl.includes("techcrunch.com");
       // Detect if this is a CSS-Tricks URL
-      const isCSSTricks = url.includes("css-tricks.com");
+      const isCSSTricks = validUrl.includes("css-tricks.com");
       // Detect if this is an Ahrefs URL
-      const isAhrefs = url.includes("ahrefs.com/blog");
+      const isAhrefs = validUrl.includes("ahrefs.com/blog");
+      // Detect if this is a HubSpot URL
+      const isHubSpot = validUrl.includes("blog.hubspot.com") || validUrl.includes("hubspot.com/blog");
+      
+      // Debug logging for Ahrefs
+      if (isAhrefs) {
+        const articleCount = $("article").length;
+        const mainCount = $("main").length;
+        const postBodyCount = $("[class*='post-body'], [class*='post-content']").length;
+        console.log(`[Ahrefs Debug] URL: ${validUrl}`);
+        console.log(`[Ahrefs Debug] Found: ${articleCount} articles, ${mainCount} main tags, ${postBodyCount} post-content/post-body elements`);
+      }
+      
+      // Debug logging for HubSpot (initial check)
+      if (isHubSpot) {
+        const articleCount = $("article").length;
+        const mainCount = $("main").length;
+        const hsgContentCount = $("[class*='hsg-post-content'], [class*='blog-post-content'], [class*='post-content'], [id*='post-content'], [id*='article-content']").length;
+        const allTextLength = $.text().trim().length;
+        console.log(`[HubSpot Debug] URL: ${validUrl}`);
+        console.log(`[HubSpot Debug] Found: ${articleCount} articles, ${mainCount} main tags, ${hsgContentCount} content-related elements`);
+        console.log(`[HubSpot Debug] Total page text: ${allTextLength} chars`);
+        
+        // Log actual class names found on article/main elements
+        $("article, main").each((i, el) => {
+          if (i < 3) { // Only log first 3
+            const classes = $(el).attr("class") || "";
+            const id = $(el).attr("id") || "";
+            const textLength = $(el).text().trim().length;
+            console.log(`[HubSpot Debug] Element ${i+1}: class="${classes.substring(0, 100)}" id="${id}" textLength=${textLength}`);
+          }
+        });
+      }
 
       // Try to find main content with multiple strategies
       // Site-specific selectors first
@@ -559,34 +730,104 @@ export class BlogScraper {
         ".post-body",
         ".article-body",
       ] : isCSSTricks ? [
-        // CSS-Tricks-specific selectors
+        // CSS-Tricks-specific selectors - updated for current site structure
         ".article-content",
         ".entry-content",
+        ".post-content",
+        ".article-body",
         "article .article-content",
         "article .entry-content",
-        ".post-content",
+        "article .post-content",
+        "article .article-body",
+        "main article .article-content",
+        "main article .entry-content",
+        "main .article-content",
         "main article",
         "article",
         "[role='article']",
         ".content",
-        ".article-body",
         ".post-body",
-      ] : isAhrefs ? [
-        // Ahrefs-specific selectors
+        ".article-entry",
+        "[class*='article-content']",
+        "[class*='entry-content']",
+        "[class*='post-content']",
+        // Try to find main content area
+        ".article-wrapper",
+        ".post-wrapper",
+        "[class*='article-wrapper']",
+      ] : isHubSpot ? [
+        // HubSpot-specific selectors - comprehensive list
+        "#hsg-post-content",
+        "#blog-post-content",
+        "#post-content",
+        "#article-content",
+        ".hsg-post-content",
+        ".blog-post-content",
         ".post-content",
         ".article-content",
         ".entry-content",
+        "[id*='post-content']",
+        "[id*='article-content']",
+        "[class*='hsg-post-content']",
+        "[class*='blog-post-content']",
+        "[class*='post-content']:not(.post-content-meta)",
+        "[class*='article-content']",
+        "[class*='entry-content']",
+        "article .hsg-post-content",
+        "article .blog-post-content",
         "article .post-content",
         "article .article-content",
         "article .entry-content",
+        "main article .hsg-post-content",
+        "main article .blog-post-content",
+        "main article .post-content",
+        "main article .article-content",
+        "main .post-content",
+        "main .blog-post-content",
+        "[data-content='post']",
+        "[data-content='article']",
+        "main article",
+        "article",
+        ".article-body",
+        ".post-body",
+        ".content-body",
+        "[role='article'] .post-content",
+        "[role='article'] .article-content",
+        "[role='article']",
+        ".content:not(.content-header):not(.content-footer)",
+        "[class*='content']:not([class*='header']):not([class*='footer']):not([class*='meta'])",
+        "main",
+        ".main-content",
+        "#main-content"
+      ] : isAhrefs ? [
+        // Ahrefs-specific selectors - try multiple possible structures
+        ".post-body",
+        ".post-content",
+        ".post-body-content",
+        ".article-body",
+        ".article-content",
+        ".entry-content",
+        ".blog-post-content",
+        ".blog-content",
+        "[class*='post-body']",
+        "[class*='post-content']",
+        "[class*='article-body']",
+        "[class*='article-content']",
+        "article .post-body",
+        "article .post-content",
+        "article .article-content",
+        "article .entry-content",
+        "main article .post-body",
+        "main article .post-content",
         "main .post-content",
         "main article",
-        ".blog-post-content",
+        "main .content",
+        ".content-wrapper",
+        "[class*='content']",
         "article",
         "[role='article']",
         ".content",
         ".article-body",
-        ".post-body",
       ] : [
         // Generic selectors for other sites
         ".post-content",
@@ -652,34 +893,407 @@ export class BlogScraper {
         
         // For CSS-Tricks, remove ads, newsletter signups, and related content
         if (isCSSTricks) {
-          $content.find(".ad, .advertisement, .newsletter, .related-posts, .author-box, .comments, .wp-block-group, aside, .sidebar").remove();
-          // Remove code blocks that might be in wrong place (keep main article code)
-          $content.find("pre code").parent().each((_, el) => {
-            const $codeBlock = $(el);
-            // Only remove if it's outside main content flow
-            if ($codeBlock.closest(".article-content, .entry-content").length === 0) {
-              $codeBlock.remove();
-            }
-          });
+          $content.find(".ad, .advertisement, .newsletter, .related-posts, .author-box, .comments, .wp-block-group, aside, .sidebar, .newsletter-signup, .email-signup, .subscribe, nav, .navigation, .breadcrumb, header, footer, .social-share, .share-widget").remove();
+          // Remove promotional elements
+          $content.find("[class*='cta'], [class*='signup'], [class*='newsletter'], [class*='promo'], [class*='ad-']").remove();
+          // Keep code blocks in CSS-Tricks articles (they're important content)
+          // Only remove code blocks if they're clearly outside the main content
         }
         
         // For Ahrefs, remove ads, CTA boxes, and related content
         if (isAhrefs) {
-          $content.find(".ad, .advertisement, .cta-box, .cta, .related-posts, .author-box, .comments, aside, .sidebar, .newsletter-signup, .social-share").remove();
+          $content.find(".ad, .advertisement, .cta-box, .cta, .related-posts, .author-box, .comments, aside, .sidebar, .newsletter-signup, .social-share, .signup, .subscribe, .email-signup").remove();
           // Remove elements that are likely navigation or non-content
-          $content.find("nav, .navigation, .breadcrumb, .post-meta").remove();
+          $content.find("nav, .navigation, .breadcrumb, .post-meta, .article-meta, header, footer").remove();
+          // Remove common Ahrefs promotional elements
+          $content.find("[class*='cta'], [class*='signup'], [class*='newsletter'], [class*='promo'], [class*='ad-']").remove();
+        }
+        
+        // For HubSpot, remove ads, CTAs, and promotional content (but be careful not to remove main content)
+        if (isHubSpot) {
+          // Remove only promotional elements, not the main content structure
+          $content.find(".ad, .advertisement, .cta-box, .hsg-cta-box, .related-posts, .comments-section, aside.sidebar, .newsletter-signup, .email-signup, .social-share-widget, nav, .navigation, header.site-header, footer.site-footer, .promo-banner, .promotion-banner").remove();
+          // Remove HubSpot-specific promotional elements (be selective)
+          $content.find("[class*='hsg-cta-box'], [class*='cta-box'], [class*='newsletter-signup'], [class*='email-signup'], [class*='promo-banner']").remove();
+          // Remove HubSpot forms and widgets (but keep content)
+          $content.find("iframe[src*='hubspot'], iframe[src*='forms'], .hs-form-wrapper, [class*='hsg-form-wrapper']").remove();
+          // Remove author box if it's separate from content
+          $content.find(".author-box:not(.author-box-inline)").remove();
+          // Remove breadcrumbs
+          $content.find(".breadcrumb, .breadcrumbs, nav[aria-label='Breadcrumb']").remove();
         }
         
         const content = $content.html();
-        if (content && content.length > 300) { // Reduced from 500 to 300
+        const textContent = $content.text().trim();
+        const textLength = textContent.length;
+        
+        // For HubSpot, be more lenient - check both HTML and text content
+        const minContentLength = isHubSpot ? 500 : 300; // Higher threshold for HubSpot since it should have full content
+        const minTextLength = isHubSpot ? 400 : 200;
+        
+        if (content && content.length > minContentLength) {
           // Clean the content using the content cleaning engine
-          const cleanedContent = cleanArticleContent(content, isTechCrunch || isCSSTricks || isAhrefs);
+          const cleanedContent = cleanArticleContent(content, isTechCrunch || isCSSTricks || isAhrefs || isHubSpot);
+          const cleanedText = cleanedContent.replace(/<[^>]*>/g, "").trim();
+          const cleanedTextLength = cleanedText.length;
           
+          if (cleanedContent && cleanedTextLength > minTextLength) {
+            if (isHubSpot) {
+              console.log(`[HubSpot] ✓ Extracted content using selector "${selector}": ${cleanedTextLength} chars text, ${cleanedContent.length} chars HTML`);
+            }
+            return {
+              content: cleanedContent || "",
+              featuredImage: featuredImage || undefined,
+            };
+          } else if (isHubSpot) {
+            console.log(`[HubSpot] ⚠️ Selector "${selector}" found content but too short after cleaning: ${cleanedTextLength} chars text (need ${minTextLength}+)`);
+          }
+        } else if (isHubSpot && content) {
+          console.log(`[HubSpot] ⚠️ Selector "${selector}" found short content: ${content.length} chars HTML, ${textLength} chars text`);
+        }
+      }
+
+      // Ahrefs-specific fallback: try multiple strategies
+      if (isAhrefs) {
+        // Strategy 1: Try to find content by looking for main article structure
+        const $article = $("article, main, [role='main'], .main-content").first();
+        if ($article.length > 0) {
+          // Remove unwanted elements
+          $article.find(".ad, .advertisement, .cta-box, .cta, .related-posts, .author-box, .comments, aside, .sidebar, .newsletter-signup, .social-share, nav, .navigation, .breadcrumb, header, footer, [class*='cta'], [class*='signup'], [class*='promo']").remove();
+          
+          // Try to find the actual content wrapper
+          const $contentWrapper = $article.find("[class*='post'], [class*='article'], [class*='content'], .prose, .post-body, .post-content").first();
+          const articleContent = $contentWrapper.length > 0 ? $contentWrapper.html() : $article.html();
+          
+          if (articleContent && articleContent.length > 300) {
+            const cleanedContent = cleanArticleContent(articleContent, true);
           if (cleanedContent && cleanedContent.length > 200) {
             return {
               content: cleanedContent || "",
               featuredImage: featuredImage || undefined,
             };
+            }
+          }
+        }
+        
+        // Strategy 2: Try to extract paragraphs that form the article
+        const $allParas = $("p").filter((_, el) => {
+          const $p = $(el);
+          const text = $p.text().trim();
+          // Exclude very short paragraphs, mostly links, or meta information
+          if (text.length < 50) return false;
+          const linkCount = $p.find("a").length;
+          if (linkCount > 2 && text.length < 200) return false; // Likely navigation
+          // Check if paragraph is in a content area
+          const parents = $p.parents().map((_, p) => $(p).attr("class") || "").get().join(" ");
+          if (parents.includes("nav") || parents.includes("header") || parents.includes("footer") || parents.includes("sidebar")) return false;
+          return true;
+        });
+        
+        if ($allParas.length > 5) {
+          const paragraphs = $allParas.map((_, el) => $(el).html()).get().join("");
+          if (paragraphs && paragraphs.length > 500) {
+            const cleanedContent = cleanArticleContent(`<div>${paragraphs}</div>`, true);
+            if (cleanedContent && cleanedContent.length > 200) {
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 3: Try to get content from common article structures
+        const contentSelectors2 = [
+          "[class*='post'] [class*='content']",
+          "[class*='article'] [class*='body']",
+          "main [class*='content']",
+          ".prose",
+          "[data-testid*='content']",
+          "[data-testid*='article']",
+          "[itemprop='articleBody']",
+        ];
+        
+        for (const selector of contentSelectors2) {
+          const $content2 = $(selector).first();
+          if ($content2.length > 0) {
+            $content2.find(".ad, .advertisement, .cta, aside, nav, header, footer, [class*='signup'], [class*='promo']").remove();
+            const content2 = $content2.html();
+            if (content2 && content2.length > 300) {
+              const cleanedContent = cleanArticleContent(content2, true);
+              if (cleanedContent && cleanedContent.length > 200) {
+                return {
+                  content: cleanedContent || "",
+                  featuredImage: featuredImage || undefined,
+                };
+              }
+            }
+          }
+        }
+      }
+
+      // HubSpot-specific fallback: try multiple strategies with more aggressive extraction
+      if (isHubSpot) {
+        console.log(`[HubSpot] Starting fallback strategies for: ${validUrl}`);
+        
+        // Strategy 1: Try article tag with HubSpot cleaning (more lenient)
+        const $article = $("article").first();
+        if ($article.length > 0) {
+          const articleTextBefore = $article.text().trim().length;
+          // Remove only obvious non-content elements
+          $article.find(".ad, .advertisement, .cta-box, .hsg-cta-box, .related-posts, .comments-section, aside.sidebar, nav, header.site-header, footer.site-footer, iframe[src*='hubspot'], .hs-form-wrapper").remove();
+          const articleContent = $article.html();
+          const articleTextAfter = $article.text().trim().length;
+          if (articleContent && articleTextAfter > 500) { // Require substantial text
+            const cleanedContent = cleanArticleContent(articleContent, true);
+            const cleanedText = cleanedContent.replace(/<[^>]*>/g, "").trim();
+            if (cleanedText.length > 400) {
+              console.log(`[HubSpot] ✓ Strategy 1: Extracted ${cleanedText.length} chars from article tag`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 2: Try main content area (more comprehensive)
+        const $main = $("main, .main-content, #main-content").first();
+        if ($main.length > 0) {
+          const mainTextBefore = $main.text().trim().length;
+          // Remove only obvious non-content
+          $main.find(".ad, .advertisement, .cta-box, aside.sidebar, nav, header.site-header, footer.site-footer, iframe[src*='hubspot'], .hs-form-wrapper").remove();
+          // Try to find the main content block within main
+          const $mainContent = $main.find("[class*='content'], [class*='post'], [class*='article'], article").first();
+          const target = $mainContent.length > 0 ? $mainContent : $main;
+          const mainContent = target.html();
+          const mainTextAfter = target.text().trim().length;
+          if (mainContent && mainTextAfter > 500) {
+            const cleanedContent = cleanArticleContent(mainContent, true);
+            const cleanedText = cleanedContent.replace(/<[^>]*>/g, "").trim();
+            if (cleanedText.length > 400) {
+              console.log(`[HubSpot] ✓ Strategy 2: Extracted ${cleanedText.length} chars from main content area`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 3: Extract paragraphs that form the article (more aggressive)
+        const $allParas = $("p").filter((_, el) => {
+          const $p = $(el);
+          const text = $p.text().trim();
+          // Exclude very short paragraphs, mostly links, or meta information
+          if (text.length < 50) return false; // Increased minimum
+          const linkCount = $p.find("a").length;
+          // Allow more links if paragraph is long enough
+          if (linkCount > 3 && text.length < 200) return false; // Likely navigation
+          // Check if paragraph is in a content area (exclude nav/header/footer)
+          const parents = $p.parents().map((_, p) => {
+            const classes = $(p).attr("class") || "";
+            const id = $(p).attr("id") || "";
+            const tag = $(p).prop("tagName")?.toLowerCase() || "";
+            return `${classes} ${id} ${tag}`;
+          }).get().join(" ").toLowerCase();
+          
+          // Exclude if in navigation/header/footer/sidebar
+          if (parents.includes("nav") || parents.includes("header.site-header") || parents.includes("footer.site-footer") || 
+              parents.includes("aside.sidebar") || parents.includes("breadcrumb") || 
+              (parents.includes("cta-box") && text.length < 300)) {
+            return false;
+          }
+          // Include if in article/main/content areas
+          if (parents.includes("article") || parents.includes("main") || 
+              parents.includes("content") || parents.includes("post-content")) {
+            return true;
+          }
+          // Default: include if text is substantial
+          return text.length > 100;
+        });
+        
+        if ($allParas.length > 3) {
+          const paragraphs = $allParas.map((_, el) => {
+            const $p = $(el);
+            // Wrap in div to preserve structure
+            return `<p>${$p.html()}</p>`;
+          }).get().join("");
+          const totalText = $allParas.map((_, el) => $(el).text().trim()).get().join(" ").length;
+          if (paragraphs && totalText > 600) { // Require at least 600 chars of text
+            const cleanedContent = cleanArticleContent(`<div>${paragraphs}</div>`, true);
+            const cleanedText = cleanedContent.replace(/<[^>]*>/g, "").trim();
+            if (cleanedText.length > 400) {
+              console.log(`[HubSpot] ✓ Strategy 3: Extracted ${cleanedText.length} chars from ${$allParas.length} paragraphs`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 4: Try to find the largest content block (more comprehensive)
+        const allDivs = $("div").filter((_, el) => {
+          const $div = $(el);
+          const text = $div.text().trim();
+          // Look for divs with substantial text content
+          if (text.length < 800 || text.length > 100000) return false; // Reasonable article length
+          
+          // Exclude obvious non-content containers
+          const classes = ($div.attr("class") || "").toLowerCase();
+          const id = ($div.attr("id") || "").toLowerCase();
+          const combined = `${classes} ${id}`;
+          
+          if (combined.includes("nav") || combined.includes("header") || combined.includes("footer") || 
+              combined.includes("sidebar") || combined.includes("ad-container") || 
+              combined.includes("promo-banner") || combined.includes("cta-box")) {
+            return false;
+          }
+          
+          // Prefer content-related classes
+          if (combined.includes("content") || combined.includes("post") || combined.includes("article") ||
+              combined.includes("entry") || combined.includes("body")) {
+            return true;
+          }
+          
+          // Default: include if it has substantial text and is likely content
+          return text.length > 1000;
+        }).toArray().sort((a, b) => {
+          // Sort by text length descending
+          return $(b).text().trim().length - $(a).text().trim().length;
+        });
+        
+        if (allDivs.length > 0) {
+          // Try top 3 largest divs
+          for (let i = 0; i < Math.min(3, allDivs.length); i++) {
+            const $largestDiv = $(allDivs[i]);
+            const textBefore = $largestDiv.text().trim().length;
+            
+            // Remove only obvious non-content
+            $largestDiv.find(".ad, .advertisement, .cta-box, nav, aside.sidebar, header.site-header, footer.site-footer, iframe[src*='hubspot']").remove();
+            const divContent = $largestDiv.html();
+            const textAfter = $largestDiv.text().trim().length;
+            
+            if (divContent && textAfter > 600) {
+              const cleanedContent = cleanArticleContent(divContent, true);
+              const cleanedText = cleanedContent.replace(/<[^>]*>/g, "").trim();
+              if (cleanedText.length > 400) {
+                console.log(`[HubSpot] ✓ Strategy 4: Extracted ${cleanedText.length} chars from largest div #${i+1}`);
+                return {
+                  content: cleanedContent || "",
+                  featuredImage: featuredImage || undefined,
+                };
+              }
+            }
+          }
+        }
+        
+        // Debug logging for HubSpot when all strategies fail
+        const allText = $.text().trim();
+        const articleCount = $("article").length;
+        const mainCount = $("main").length;
+        const hsgContentCount = $("[class*='hsg-post-content'], [class*='blog-post-content']").length;
+        console.log(`[HubSpot Debug] ❌ Failed to extract content from: ${validUrl}`);
+        console.log(`[HubSpot Debug] Page stats: ${allText.length} total chars, ${articleCount} articles, ${mainCount} main tags, ${hsgContentCount} hsg-post-content/blog-post-content elements`);
+      }
+      
+      // CSS-Tricks-specific fallback: try multiple strategies
+      if (isCSSTricks) {
+        // Strategy 1: Try article tag with CSS-Tricks cleaning
+        const $article = $("article").first();
+        if ($article.length > 0) {
+          $article.find(".ad, .advertisement, .newsletter, .related-posts, .author-box, .comments, .wp-block-group, aside, .sidebar, nav, .navigation, header, footer").remove();
+          const articleContent = $article.html();
+          if (articleContent && articleContent.length > 300) {
+            const cleanedContent = cleanArticleContent(articleContent, true);
+            if (cleanedContent && cleanedContent.length > 200) {
+              console.log(`[CSS-Tricks] Extracted content from article tag (${cleanedContent.length} chars)`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 2: Try main content area
+        const $main = $("main, .main-content, #main-content").first();
+        if ($main.length > 0) {
+          $main.find(".ad, .advertisement, .newsletter, aside, nav, header, footer, .sidebar").remove();
+          const mainContent = $main.html();
+          if (mainContent && mainContent.length > 300) {
+            const cleanedContent = cleanArticleContent(mainContent, true);
+            if (cleanedContent && cleanedContent.length > 200) {
+              console.log(`[CSS-Tricks] Extracted content from main tag (${cleanedContent.length} chars)`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 3: Extract paragraphs that form the article
+        const $allParas = $("p").filter((_, el) => {
+          const $p = $(el);
+          const text = $p.text().trim();
+          // Exclude very short paragraphs, mostly links, or meta information
+          if (text.length < 30) return false;
+          const linkCount = $p.find("a").length;
+          if (linkCount > 2 && text.length < 150) return false; // Likely navigation
+          // Check if paragraph is in a content area
+          const parents = $p.parents().map((_, p) => $(p).attr("class") || "").get().join(" ").toLowerCase();
+          if (parents.includes("nav") || parents.includes("header") || parents.includes("footer") || 
+              parents.includes("sidebar") || parents.includes("breadcrumb") || parents.includes("meta")) {
+            return false;
+          }
+          return true;
+        });
+        
+        if ($allParas.length > 5) {
+          const paragraphs = $allParas.map((_, el) => $(el).html()).get().join("");
+          if (paragraphs && paragraphs.length > 500) {
+            const cleanedContent = cleanArticleContent(`<div>${paragraphs}</div>`, true);
+            if (cleanedContent && cleanedContent.length > 200) {
+              console.log(`[CSS-Tricks] Extracted content from ${$allParas.length} paragraphs (${cleanedContent.length} chars)`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Strategy 4: Try to find the largest content block
+        const allDivs = $("div").filter((_, el) => {
+          const $div = $(el);
+          const text = $div.text().trim();
+          // Look for divs with substantial text content
+          return text.length > 1000 && text.length < 50000; // Reasonable article length
+        }).toArray().sort((a, b) => {
+          // Sort by text length descending
+          return $(b).text().trim().length - $(a).text().trim().length;
+        });
+        
+        if (allDivs.length > 0) {
+          const $largestDiv = $(allDivs[0]);
+          // Check if it's not a navigation or promotional element
+          const classes = ($largestDiv.attr("class") || "").toLowerCase();
+          if (!classes.includes("nav") && !classes.includes("header") && !classes.includes("footer") && 
+              !classes.includes("sidebar") && !classes.includes("ad") && !classes.includes("promo")) {
+            $largestDiv.find(".ad, .advertisement, .cta, nav, .navigation, aside, .sidebar, header, footer").remove();
+            const divContent = $largestDiv.html();
+            if (divContent && divContent.length > 500) {
+              const cleanedContent = cleanArticleContent(divContent, true);
+              if (cleanedContent && cleanedContent.length > 200) {
+                console.log(`[CSS-Tricks] Extracted content from largest div (${cleanedContent.length} chars)`);
+                return {
+                  content: cleanedContent || "",
+                  featuredImage: featuredImage || undefined,
+                };
+              }
+            }
           }
         }
       }
@@ -699,7 +1313,8 @@ export class BlogScraper {
             };
           }
         }
-      } else {
+      } else if (!isCSSTricks && !isHubSpot) {
+        // Only try generic article fallback if not CSS-Tricks or HubSpot (already handled above)
         const articleContent = $("article").first().html();
         if (articleContent && articleContent.length > 300) {
           const cleanedContent = cleanArticleContent(articleContent);
@@ -712,7 +1327,8 @@ export class BlogScraper {
         }
       }
 
-      // More aggressive fallback: try main content area
+      // More aggressive fallback: try main content area (skip if CSS-Tricks or HubSpot already handled)
+      if (!isCSSTricks && !isHubSpot) {
       const $main = $("main, .main-content, #main-content, .content-area").first();
       if (isTechCrunch) {
         $main.find(".river-block, .river, .headlines-only, .more-articles, nav").remove();
@@ -725,6 +1341,26 @@ export class BlogScraper {
             content: cleanedContent || "",
             featuredImage: featuredImage || undefined,
           };
+          }
+        }
+      }
+
+      // Debug logging for CSS-Tricks
+      if (isCSSTricks) {
+        const allText = $.text().trim();
+        const articleCount = $("article").length;
+        const mainCount = $("main").length;
+        const contentElements = $("[class*='content'], [class*='entry'], [class*='article']").length;
+        
+        console.log(`[CSS-Tricks Debug] ❌ Failed to extract content from: ${validUrl}`);
+        console.log(`[CSS-Tricks Debug] Page stats: ${allText.length} total chars, ${articleCount} articles, ${mainCount} main tags, ${contentElements} content elements`);
+        
+        // Try to provide helpful diagnostics
+        if (articleCount === 0 && mainCount === 0) {
+          console.log(`[CSS-Tricks Debug] ⚠️ No article or main tags found - page structure may be different`);
+        }
+        if (allText.length < 100) {
+          console.log(`[CSS-Tricks Debug] ⚠️ Very little text on page - might be JavaScript-rendered or error page`);
         }
       }
 
@@ -748,6 +1384,72 @@ export class BlogScraper {
             };
           }
         }
+      } else if (isAhrefs) {
+        // For Ahrefs, try a more aggressive paragraph extraction
+        // Get all paragraphs and filter intelligently
+        const $articleParas = $("p").filter((_, el) => {
+          const $p = $(el);
+          const text = $p.text().trim();
+          // Skip very short paragraphs
+          if (text.length < 30) return false;
+          // Skip paragraphs that are mostly links
+          const linkCount = $p.find("a").length;
+          if (linkCount > 1 && text.length < 150) return false;
+          // Skip if in navigation or header/footer
+          const $parent = $p.parents();
+          const parentClasses = $parent.map((_, p) => $(p).attr("class") || "").get().join(" ").toLowerCase();
+          if (parentClasses.includes("nav") || parentClasses.includes("header") || parentClasses.includes("footer") || 
+              parentClasses.includes("sidebar") || parentClasses.includes("breadcrumb") || parentClasses.includes("meta")) {
+            return false;
+          }
+          return true;
+        });
+        
+        if ($articleParas.length >= 3) {
+          const paragraphs = $articleParas.map((_, el) => $(el).html()).get().join("");
+          if (paragraphs && paragraphs.length > 500) {
+            const cleanedContent = cleanArticleContent(`<div>${paragraphs}</div>`, true);
+            if (cleanedContent && cleanedContent.length > 200) {
+              console.log(`[Ahrefs] Extracted content from ${$articleParas.length} paragraphs (${cleanedContent.length} chars)`);
+              return {
+                content: cleanedContent || "",
+                featuredImage: featuredImage || undefined,
+              };
+            }
+          }
+        }
+        
+        // Last resort for Ahrefs: try to find the largest content block
+        const allDivs = $("div").filter((_, el) => {
+          const $div = $(el);
+          const text = $div.text().trim();
+          // Look for divs with substantial text content
+          return text.length > 1000 && text.length < 50000; // Reasonable article length
+        }).toArray().sort((a, b) => {
+          // Sort by text length descending
+          return $(b).text().trim().length - $(a).text().trim().length;
+        });
+        
+        if (allDivs.length > 0) {
+          const $largestDiv = $(allDivs[0]);
+          // Check if it's not a navigation or promotional element
+          const classes = ($largestDiv.attr("class") || "").toLowerCase();
+          if (!classes.includes("nav") && !classes.includes("header") && !classes.includes("footer") && 
+              !classes.includes("sidebar") && !classes.includes("ad") && !classes.includes("promo")) {
+            $largestDiv.find(".ad, .advertisement, .cta, nav, .navigation, aside, .sidebar, header, footer").remove();
+            const divContent = $largestDiv.html();
+            if (divContent && divContent.length > 500) {
+              const cleanedContent = cleanArticleContent(divContent, true);
+              if (cleanedContent && cleanedContent.length > 200) {
+                console.log(`[Ahrefs] Extracted content from largest div (${cleanedContent.length} chars)`);
+                return {
+                  content: cleanedContent || "",
+                  featuredImage: featuredImage || undefined,
+                };
+              }
+            }
+          }
+        }
       } else {
         const paragraphs = $("p").map((_, el) => $(el).html()).get().join("");
         if (paragraphs && paragraphs.length > 300) {
@@ -759,6 +1461,13 @@ export class BlogScraper {
             };
           }
         }
+      }
+      
+      // Final logging if no content found
+      if (isAhrefs) {
+        const allText = $.text().trim();
+        console.log(`[Ahrefs Debug] Failed to extract content. Page has ${allText.length} characters of total text.`);
+        console.log(`[Ahrefs Debug] Available selectors: article=${$("article").length}, main=${$("main").length}, [class*='content']=${$("[class*='content']").length}`);
       }
 
       return { content: "", featuredImage: featuredImage || undefined };

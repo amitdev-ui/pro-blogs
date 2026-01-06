@@ -21,11 +21,13 @@ export async function initializeAutoScheduler() {
     
     // Start scheduled scraping for all websites every hour
     // Cron: "0 * * * *" means "at minute 0 of every hour"
+    // NOTE: This runs automatically and scrapes ALL websites
     const success = await startScheduledScraping("all", "0 * * * *");
     
     if (success) {
-      console.log("[Auto-Scheduler] ✓ Automatic scraping started successfully!");
-      console.log("[Auto-Scheduler] All websites will be scraped every hour automatically.");
+      console.log("[Auto-Scheduler] ⚠️ WARNING: Automatic scraping started successfully!");
+      console.log("[Auto-Scheduler] ⚠️ All websites will be scraped every hour AUTOMATICALLY in the background.");
+      console.log("[Auto-Scheduler] ⚠️ Manual scrapes from admin panel will run separately.");
       isInitialized = true;
     } else {
       console.error("[Auto-Scheduler] ✗ Failed to start automatic scraping");

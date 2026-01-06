@@ -14,8 +14,12 @@ interface PageLimit {
 const pageLimits = new Map<string, PageLimit>();
 
 // Base limits (starting points)
+// Scheduled runs process exactly 500 pages per website per run
 const BASE_MAIN_LIMIT = 500;
 const BASE_CATEGORY_LIMIT = 5000;
+
+// Scheduled scraping limit: exactly 500 pages per website per run
+export const SCHEDULED_PAGES_PER_RUN = 500;
 
 // Maximum limits (safety caps)
 const MAX_MAIN_LIMIT = 10000;

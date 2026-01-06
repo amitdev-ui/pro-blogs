@@ -1,9 +1,33 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import BlogCard from "@/components/BlogCard";
 import { getPostsFromDB, getStatsFromDB, getAdsForPlacement } from "@/lib/post-utils";
 import { Sparkles, Code, TrendingUp, Brain } from "lucide-react";
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://yourdomain.com";
+
+export const metadata: Metadata = {
+  title: "Home",
+  description: "Discover curated articles, insights, and inspiration from top creators. Explore technology, finance, AI, and more on our modern blog platform.",
+  openGraph: {
+    title: "Blog Journal - Discover Stories, Ideas, and Inspiration",
+    description: "Explore carefully curated articles from designers, photographers, architects, and creators around the world.",
+    url: siteUrl,
+    images: [
+      {
+        url: `${siteUrl}/og-image.jpg`,
+        width: 1200,
+        height: 630,
+        alt: "Blog Journal",
+      },
+    ],
+  },
+  alternates: {
+    canonical: siteUrl,
+  },
+};
 
 export default async function Home() {
   // Fetch real posts and stats from database
@@ -165,31 +189,8 @@ export default async function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {latestPosts.length > 0 ? (
-              latestPosts.map((post, index) => (
-                <div key={post.id}>
-                  <BlogCard post={post} />
-                  {/* Ad Slot - After every 3rd blog card */}
-                  {index > 0 && (index + 1) % 3 === 0 && homepageAds[1] && (
-                    <div className="mt-6">
-                      <a
-                        href={homepageAds[1].linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-                      >
-                        <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                          Sponsored
-                        </p>
-                        <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                          {homepageAds[1].title}
-                        </h3>
-                        <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                          {homepageAds[1].linkUrl}
-                        </p>
-                      </a>
-                    </div>
-                  )}
-                </div>
+              latestPosts.map((post) => (
+                <BlogCard key={post.id} post={post} />
               ))
             ) : (
               <div className="col-span-full text-center py-12">
@@ -200,26 +201,31 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Ad Slot - Between Latest and Tech Sections */}
-      {homepageAds.length > 2 && homepageAds[2] && (
+      {/* Ad Slots - 3 Ads in One Row - Between Latest and Tech Sections */}
+      {homepageAds.length >= 3 && (
         <section className="w-full py-8 bg-white">
           <div className="container mx-auto max-w-[1280px] px-6 md:px-8">
-            <a
-              href={homepageAds[2].linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-            >
-              <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                Sponsored
-              </p>
-              <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                {homepageAds[2].title}
-              </h3>
-              <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                {homepageAds[2].linkUrl}
-              </p>
-            </a>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+              {homepageAds.slice(1, 4).map((ad, index) => (
+                <a
+                  key={index}
+                  href={ad.linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
+                >
+                  <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
+                    Sponsored
+                  </p>
+                  <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
+                    {ad.title}
+                  </h3>
+                  <p className="text-sm text-[#6B7280] leading-relaxed truncate">
+                    {ad.linkUrl}
+                  </p>
+                </a>
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -252,31 +258,8 @@ export default async function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {techFiltered.length > 0 ? (
-              techFiltered.map((post, index) => (
-                <div key={post.id}>
-                  <BlogCard post={post} />
-                  {/* Ad Slot - After every 3rd blog card */}
-                  {index > 0 && (index + 1) % 3 === 0 && homepageAds[3] && (
-                    <div className="mt-6">
-                      <a
-                        href={homepageAds[3].linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-                      >
-                        <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                          Sponsored
-                        </p>
-                        <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                          {homepageAds[3].title}
-                        </h3>
-                        <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                          {homepageAds[3].linkUrl}
-                        </p>
-                      </a>
-                    </div>
-                  )}
-                </div>
+              techFiltered.map((post) => (
+                <BlogCard key={post.id} post={post} />
               ))
             ) : (
               <div className="col-span-full text-center py-12">
@@ -287,26 +270,31 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Ad Slot - Between Tech and Financial Sections */}
-      {homepageAds.length > 4 && homepageAds[4] && (
+      {/* Ad Slots - 3 Ads in One Row - Between Tech and Financial Sections */}
+      {homepageAds.length >= 6 && (
         <section className="w-full py-8 bg-gradient-to-b from-[#F9FAFB] to-white">
           <div className="container mx-auto max-w-[1280px] px-6 md:px-8">
-            <a
-              href={homepageAds[4].linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-            >
-              <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                Sponsored
-              </p>
-              <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                {homepageAds[4].title}
-              </h3>
-              <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                {homepageAds[4].linkUrl}
-              </p>
-            </a>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+              {homepageAds.slice(4, 7).map((ad, index) => (
+                <a
+                  key={index}
+                  href={ad.linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
+                >
+                  <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
+                    Sponsored
+                  </p>
+                  <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
+                    {ad.title}
+                  </h3>
+                  <p className="text-sm text-[#6B7280] leading-relaxed truncate">
+                    {ad.linkUrl}
+                  </p>
+                </a>
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -339,31 +327,8 @@ export default async function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {financialFiltered.length > 0 ? (
-              financialFiltered.map((post, index) => (
-                <div key={post.id}>
-                  <BlogCard post={post} />
-                  {/* Ad Slot - After every 3rd blog card */}
-                  {index > 0 && (index + 1) % 3 === 0 && homepageAds[5] && (
-                    <div className="mt-6">
-                      <a
-                        href={homepageAds[5].linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-                      >
-                        <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                          Sponsored
-                        </p>
-                        <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                          {homepageAds[5].title}
-                        </h3>
-                        <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                          {homepageAds[5].linkUrl}
-                        </p>
-                      </a>
-                    </div>
-                  )}
-                </div>
+              financialFiltered.map((post) => (
+                <BlogCard key={post.id} post={post} />
               ))
             ) : (
               <div className="col-span-full text-center py-12">
@@ -374,26 +339,31 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Ad Slot - Between Financial and AI Sections */}
-      {homepageAds.length > 6 && homepageAds[6] && (
+      {/* Ad Slots - 3 Ads in One Row - Between Financial and AI Sections */}
+      {homepageAds.length >= 8 && (
         <section className="w-full py-8 bg-gradient-to-b from-white to-[#F9FAFB]">
           <div className="container mx-auto max-w-[1280px] px-6 md:px-8">
-            <a
-              href={homepageAds[6].linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-            >
-              <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                Sponsored
-              </p>
-              <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                {homepageAds[6].title}
-              </h3>
-              <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                {homepageAds[6].linkUrl}
-              </p>
-            </a>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+              {homepageAds.slice(7, 10).map((ad, index) => (
+                <a
+                  key={index}
+                  href={ad.linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
+                >
+                  <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
+                    Sponsored
+                  </p>
+                  <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
+                    {ad.title}
+                  </h3>
+                  <p className="text-sm text-[#6B7280] leading-relaxed truncate">
+                    {ad.linkUrl}
+                  </p>
+                </a>
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -426,31 +396,8 @@ export default async function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {aiFiltered.length > 0 ? (
-              aiFiltered.map((post, index) => (
-                <div key={post.id}>
-                  <BlogCard post={post} />
-                  {/* Ad Slot - After every 3rd blog card */}
-                  {index > 0 && (index + 1) % 3 === 0 && homepageAds[7] && (
-                    <div className="mt-6">
-                      <a
-                        href={homepageAds[7].linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block border-2 border-[#111827] rounded-none p-4 md:p-6 bg-transparent shadow-none hover:bg-[#F9FAFB] transition-colors"
-                      >
-                        <p className="text-[11px] font-semibold text-[#111827] uppercase tracking-wide mb-2">
-                          Sponsored
-                        </p>
-                        <h3 className="text-base md:text-lg font-semibold text-[#111827] mb-2">
-                          {homepageAds[7].title}
-                        </h3>
-                        <p className="text-sm text-[#6B7280] leading-relaxed truncate">
-                          {homepageAds[7].linkUrl}
-                        </p>
-                      </a>
-                    </div>
-                  )}
-                </div>
+              aiFiltered.map((post) => (
+                <BlogCard key={post.id} post={post} />
               ))
             ) : (
               <div className="col-span-full text-center py-12">

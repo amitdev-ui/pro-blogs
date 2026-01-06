@@ -52,14 +52,17 @@ export async function GET() {
       const issues: string[] = [];
       let isPerfect = true;
 
-      // Check content - use plain text length (strip HTML tags) to match scraper logic
-      const plainTextLength = (post.content || "").replace(/<[^>]*>/g, "").trim().length;
+      // Check content - use word count to match scraper logic (550 words minimum - good for SEO)
+      const plainText = (post.content || "").replace(/<[^>]*>/g, "").trim();
+      const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+      const plainTextLength = plainText.length;
+      
       if (!post.content || plainTextLength === 0) {
         issues.push("Empty Content");
         emptyContentPosts++;
         isPerfect = false;
-      } else if (plainTextLength < 350) {
-        issues.push("Short Content (< 350 chars)");
+      } else if (wordCount < 550) {
+        issues.push(`Short Content (${wordCount} words, need 550+)`);
         shortContentPosts++;
         isPerfect = false;
       }
@@ -147,7 +150,10 @@ export async function GET() {
           }
           
           return (
-            plainTextLength >= 350 &&
+            (() => {
+              const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+              return wordCount >= 550;
+            })() &&
             p.thumbnail &&
             p.coverImage &&
             p.authorImage &&

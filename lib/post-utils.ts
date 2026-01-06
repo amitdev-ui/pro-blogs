@@ -298,6 +298,18 @@ export async function getAdsForPlacement(placement: string, limit: number = 3) {
       where: { placement, isActive: true },
       orderBy: { createdAt: "desc" },
       take: limit,
+      select: {
+        id: true,
+        title: true,
+        imageUrl: true,
+        linkUrl: true,
+        adCode: true,
+        width: true,
+        height: true,
+        placement: true,
+        isActive: true,
+        createdAt: true,
+      },
     });
     return ads;
   } catch (error) {

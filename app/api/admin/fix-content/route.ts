@@ -170,9 +170,13 @@ async function runFixInBackground(sessionId: string, type: "seo" | "images" | "c
       }
     } else if (type === "content") {
       // Find posts with missing content (or very short content)
-      const postsNeedingContent = allPosts.filter(post => 
-        !post.content || post.content.trim().length < 350
-      );
+      // Primary rule: Articles must be at least 550 words (good for SEO)
+      const postsNeedingContent = allPosts.filter(post => {
+        if (!post.content) return true;
+        const plainText = post.content.replace(/<[^>]*>/g, "").trim();
+        const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+        return wordCount < 550;
+      });
 
       updateProgress(sessionId, {
         message: `Found ${postsNeedingContent.length} posts needing content. Processing...`,
@@ -212,7 +216,10 @@ async function runFixInBackground(sessionId: string, type: "seo" | "images" | "c
               const scraper = new BlogScraper(config);
               const scrapeResult = await scraper.scrapeFullPost(post.sourceUrl);
               
-              if (scrapeResult.content && scrapeResult.content.length >= 350) {
+              // Check if content has at least 550 words (good for SEO)
+              const plainText = scrapeResult.content.replace(/<[^>]*>/g, "").trim();
+              const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+              if (scrapeResult.content && wordCount >= 550) {
                 // Clean and optimize content
                 // Detect if it's TechCrunch for better cleaning
                 const isTechCrunch = post.sourceUrl?.includes("techcrunch.com") || false;

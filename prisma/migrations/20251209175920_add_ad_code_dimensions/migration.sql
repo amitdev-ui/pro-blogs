@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE `ad` ADD COLUMN `adCode` TEXT NULL,
+    ADD COLUMN `height` INTEGER NULL,
+    ADD COLUMN `width` INTEGER NULL;

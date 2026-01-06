@@ -13,10 +13,22 @@ import Link from "next/link";
 
 async function getStats() {
   try {
-    const [websiteCount, postCount, logCount, latestLog] = await Promise.all([
+    // Get posts updated in last 24 hours (likely from last run)
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    
+    const [websiteCount, postCount, logCount, updatedPostsCount, latestLog] = await Promise.all([
       prisma.website.count().catch(() => 0),
       prisma.post.count().catch(() => 0),
       prisma.log.count().catch(() => 0),
+      // Count posts updated in last 24 hours (these are from recent scraping runs)
+      prisma.post.count({
+        where: {
+          updatedAt: {
+            gte: oneDayAgo,
+          },
+        },
+      }).catch(() => 0),
       prisma.log.findFirst({
         orderBy: { createdAt: "desc" },
         include: { website: true },
@@ -27,6 +39,7 @@ async function getStats() {
       websiteCount,
       postCount,
       logCount,
+      updatedPostsCount,
       latestLog,
     };
   } catch (error) {
@@ -35,6 +48,7 @@ async function getStats() {
       websiteCount: 0,
       postCount: 0,
       logCount: 0,
+      updatedPostsCount: 0,
       latestLog: null,
     };
   }
@@ -117,13 +131,40 @@ async function getLatestLogs() {
   }
 }
 
+async function getUpdatedPosts() {
+  try {
+    // Get posts updated in the last 24 hours for "last run" context
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    
+    return await prisma.post.findMany({
+      where: {
+        updatedAt: {
+          gte: oneDayAgo,
+        },
+      },
+      take: 10,
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        updatedAt: true,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching updated posts:", error);
+    return [];
+  }
+}
+
 export default async function AdminDashboard() {
   // Run all queries in parallel for better performance
-  const [stats, postsByWebsite, latestPosts, latestLogs] = await Promise.all([
+  const [stats, postsByWebsite, latestPosts, latestLogs, updatedPosts] = await Promise.all([
     getStats(),
     getPostsByWebsite(),
     getLatestPosts(),
     getLatestLogs(),
+    getUpdatedPosts(),
   ]);
 
   // Check if database connection is working (with timeout)
@@ -201,6 +242,19 @@ export default async function AdminDashboard() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-[#6B7280]">
+              Updated Posts
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-[#111827]">
+              {stats.updatedPostsCount}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-[#6B7280]">
               Total Logs
             </CardTitle>
           </CardHeader>
@@ -210,21 +264,22 @@ export default async function AdminDashboard() {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-[#6B7280]">
-              Scraper Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-green-500"></div>
-              <span className="text-sm font-medium text-[#111827]">Idle</span>
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* Scraper Status */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-[#6B7280]">
+            Scraper Status
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-green-500"></div>
+            <span className="text-sm font-medium text-[#111827]">Idle</span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Posts by Website */}
       <Card>
@@ -327,6 +382,42 @@ export default async function AdminDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Updated Posts Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Updated Posts from Last Run</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {updatedPosts.length > 0 ? (
+              <>
+                <p className="text-sm text-[#6B7280] mb-2">
+                  {updatedPosts.length} posts updated
+                </p>
+                {updatedPosts.map((post: { id: string; title: string; updatedAt: Date }) => (
+                  <div
+                    key={post.id}
+                    className="flex items-start gap-3 pb-3 border-b border-[#E5E7EB] last:border-0 last:pb-0"
+                  >
+                    <div className="h-2 w-2 rounded-full mt-1.5 bg-blue-500"></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#111827] line-clamp-2">
+                        {post.title}
+                      </p>
+                      <p className="text-xs text-[#6B7280] mt-1">
+                        Updated {formatDate(post.updatedAt.toString())}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p className="text-sm text-[#6B7280]">No posts updated recently</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

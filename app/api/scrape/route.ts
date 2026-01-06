@@ -8,7 +8,7 @@ import { rewriteForSEO } from "@/lib/scraper/seo-rewriter";
 import { getPageLimit, increasePageLimit } from "@/lib/scraper/page-limit-manager";
 
 export async function POST(request: NextRequest) {
-  const sessionId = `scrape-${Date.now()}`;
+  const sessionId = `manual-scrape-${Date.now()}`;
   
   try {
     const body = await request.json();
@@ -21,11 +21,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate that websiteId is not "all" for manual scraping
+    if (websiteId === "all") {
+      return NextResponse.json(
+        { error: "Cannot manually scrape 'all' websites. Please select a specific website." },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[Manual Scraper] Starting manual scrape for website ID: ${websiteId}`);
+
     // Return immediately and run scraper in background
     // This prevents timeout issues
     // Don't await - let it run in background
     runScraperInBackground(sessionId, websiteId).catch((error) => {
-      console.error("Unhandled error in background scraper:", error);
+      console.error("[Manual Scraper] Unhandled error in background scraper:", error);
       updateProgress(sessionId, {
         status: 'error',
         message: `Unhandled error: ${String(error)}`,
@@ -35,11 +45,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: "Scraping started",
+      message: "Manual scraping started for selected website only",
       sessionId,
     });
   } catch (error) {
-    console.error("Error starting scraper:", error);
+    console.error("[Manual Scraper] Error starting scraper:", error);
     return NextResponse.json(
       { error: "Failed to start scraping", details: String(error) },
       { status: 500 }
@@ -49,6 +59,10 @@ export async function POST(request: NextRequest) {
 
 async function runScraperInBackground(sessionId: string, websiteId: string) {
   try {
+    // Check if this is a manual scrape (sessionId starts with "manual-")
+    // Define logPrefix early so it can be used throughout the function
+    const isManualScrape = sessionId.startsWith("manual-");
+    const logPrefix = isManualScrape ? "[Manual Scraper]" : "[Scheduled Scraper]";
 
     // Get website from database
     const website = await prisma.website.findUnique({
@@ -71,7 +85,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         ? JSON.parse(website.selectors)
         : website.selectors;
     } catch (parseError) {
-      console.error("Error parsing selectors:", parseError);
+      console.error(`${logPrefix} Error parsing selectors:`, parseError);
       updateProgress(sessionId, {
         status: 'error',
         message: `Error parsing website selectors: ${parseError}`,
@@ -80,8 +94,12 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
       return;
     }
 
-    // Get dynamic page limit for this website (auto-adjusts when needed)
+    // For manual scraping: use dynamic page limit (can go beyond 500 if needed)
+    // This allows manual scraping to process more pages if user wants
     const pageLimit = getPageLimit(website.id, 'main');
+    
+    console.log(`${logPrefix} Starting scrape for website: ${website.name} (ID: ${website.id})`);
+    console.log(`${logPrefix} Manual scrape: Using dynamic page limit (currently: ${pageLimit} pages)`);
     
     // Create scraper config
     const config = {
@@ -90,39 +108,39 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
       selectors,
       pagination: {
         type: "next-page" as const,
-        maxPages: pageLimit, // Dynamic limit - auto-increases when all posts are duplicates
+        maxPages: pageLimit, // Dynamic limit for manual scraping - auto-increases when needed
       },
     };
 
     const scraper = new BlogScraper(config);
-
+    
     // Update progress: Starting
     try {
       updateProgress(sessionId, {
         status: 'running',
         websiteId: website.id,
         websiteName: website.name,
-        message: `Starting scrape for ${website.name}...`,
+        message: `${isManualScrape ? 'Manual' : 'Scheduled'} scrape: Starting scrape for ${website.name}...`,
         startTime: new Date(),
         postsScraped: 0,
         errors: []
       });
     } catch (progressError) {
-      console.error("Error updating progress:", progressError);
+      console.error(`${logPrefix} Error updating progress:`, progressError);
     }
 
     // Update progress: Scraping listing page
     try {
       updateProgress(sessionId, {
-        message: `Scraping listing page: ${website.url}...`,
+        message: `${isManualScrape ? 'Manual' : 'Scheduled'} scrape: Scraping listing page: ${website.url}...`,
       });
     } catch (progressError) {
-      console.error("Error updating progress:", progressError);
+      console.error(`${logPrefix} Error updating progress:`, progressError);
     }
 
     // Scrape the website listing page with dynamic page limit
     updateProgress(sessionId, {
-      message: `Scraping listing pages (up to ${pageLimit} pages to find new posts)...`,
+      message: `${isManualScrape ? 'Manual' : 'Scheduled'} scrape: Scraping listing pages (up to ${pageLimit} pages to find new posts)...`,
     });
     
     const posts = await scraper.scrapePage(website.url);
@@ -173,7 +191,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         },
       }).catch(() => {}); // Ignore log errors
       
-      console.log(`[Scraper] No posts found for ${website.name}. Selectors may need updating.`);
+      console.log(`${logPrefix} No posts found for ${website.name}. Selectors may need updating.`);
       return;
     }
 
@@ -193,7 +211,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
       // Don't stop for updates - continue searching for new posts
       if (newPostsCount >= MAX_NEW_POSTS_PER_RUN) {
         limitReached = true;
-        const msg = `[Scraper] Reached per-run limit of ${MAX_NEW_POSTS_PER_RUN} NEW posts. Updated ${updatedPostsCount} existing posts. Remaining posts will be scraped in future runs.`;
+        const msg = `${logPrefix} Reached per-run limit of ${MAX_NEW_POSTS_PER_RUN} NEW posts. Updated ${updatedPostsCount} existing posts. Remaining posts will be scraped in future runs.`;
         console.log(msg);
         try {
           updateProgress(sessionId, {
@@ -219,7 +237,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         try {
           updateProgress(sessionId, {
             currentPost: i + 1,
-            message: `Processing post ${i + 1}/${posts.length}: ${post.title.substring(0, 50)}...`,
+            message: `${isManualScrape ? 'Manual' : 'Scheduled'} scrape: Processing post ${i + 1}/${posts.length}: ${post.title.substring(0, 50)}...`,
           });
         } catch (progressError) {
           // Continue even if progress update fails
@@ -229,91 +247,102 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         let fullContent = post.content || "";
         let contentScrapingFailed = false;
         
+        // Validate sourceUrl before attempting to scrape
         if (post.sourceUrl && post.sourceUrl !== website.url) {
-          try {
-            try {
-              updateProgress(sessionId, {
-                message: `Scraping full content for: ${post.title.substring(0, 50)}...`,
-              });
-            } catch (progressError) {
-              // Continue even if progress update fails
-            }
-            
-            const scrapeResult = await scraper.scrapeFullPost(post.sourceUrl);
-            const scrapedContent = scrapeResult.content || "";
-            
-            // Log content length for debugging
-            const scrapedLength = scrapedContent.replace(/<[^>]*>/g, "").trim().length;
-            if (scrapedLength === 0 || scrapedLength < 100) {
-              console.log(`[Scraper] Warning: Full content scraping returned very short content (${scrapedLength} chars) for ${post.title.substring(0, 50)}... URL: ${post.sourceUrl}`);
-              contentScrapingFailed = true;
-            } else {
-              fullContent = scrapedContent;
-              console.log(`[Scraper] Successfully scraped ${scrapedLength} chars of content for: ${post.title.substring(0, 50)}...`);
-            }
-            
-            // Update cover image with better featured image from full post if available
-            if (scrapeResult.featuredImage) {
-              post.coverImage = scrapeResult.featuredImage;
-              // Also update thumbnail if we don't have a good one
-              if (!post.thumbnail || post.thumbnail === post.coverImage) {
-                post.thumbnail = scrapeResult.featuredImage;
-              }
-            }
-            
-            // Clean the content one more time to ensure it's fully cleaned
-            if (fullContent && fullContent.length > 0) {
-              fullContent = cleanArticleContent(fullContent);
-              
-              // Apply SEO rewriting to improve search visibility
-              fullContent = rewriteForSEO(fullContent, {
-                preserveQuotes: true,
-                enhanceHeadings: true,
-                addKeywords: true,
-              });
-              
-              // Update reading time based on content
-              const words = fullContent.replace(/<[^>]*>/g, "").split(/\s+/).length;
-              const minutes = Math.ceil(words / 200);
-              post.readingTime = `${minutes} min read`;
-            }
-          } catch (error) {
+          // Check if URL is malformed (e.g., double /archives for CSS-Tricks)
+          const isCSSTricks = post.sourceUrl.includes("css-tricks.com");
+          if (isCSSTricks && (post.sourceUrl.includes("/archives//archives") || post.sourceUrl.match(/\/archives\/archives/))) {
+            console.log(`${logPrefix} ⚠️ Skipping malformed CSS-Tricks URL: ${post.sourceUrl}`);
             contentScrapingFailed = true;
-            const errorMsg = `Error scraping full content for ${post.slug}: ${error}`;
-            console.error(`[Scraper] ${errorMsg}`);
-            
-            // Log more details about the error
-            if (error instanceof Error) {
-              console.error(`[Scraper] Error details: ${error.message}`);
-              console.error(`[Scraper] Post URL: ${post.sourceUrl}`);
+          } else {
+            try {
+              try {
+                updateProgress(sessionId, {
+                  message: `${isManualScrape ? 'Manual' : 'Scheduled'} scrape: Scraping full content for: ${post.title.substring(0, 50)}...`,
+                });
+              } catch (progressError) {
+                // Continue even if progress update fails
+              }
+              
+              const scrapeResult = await scraper.scrapeFullPost(post.sourceUrl);
+              const scrapedContent = scrapeResult.content || "";
+              
+              // Log content length for debugging
+              const scrapedLength = scrapedContent.replace(/<[^>]*>/g, "").trim().length;
+              if (scrapedLength === 0 || scrapedLength < 100) {
+                console.log(`${logPrefix} ⚠️ Warning: Full content scraping returned very short content (${scrapedLength} chars) for ${post.title.substring(0, 50)}... URL: ${post.sourceUrl}`);
+                contentScrapingFailed = true;
+              } else {
+                fullContent = scrapedContent;
+                console.log(`${logPrefix} ✓ Successfully scraped ${scrapedLength} chars of content for: ${post.title.substring(0, 50)}...`);
+              }
+              
+              // Update cover image with better featured image from full post if available
+              if (scrapeResult.featuredImage) {
+                post.coverImage = scrapeResult.featuredImage;
+                // Also update thumbnail if we don't have a good one
+                if (!post.thumbnail || post.thumbnail === post.coverImage) {
+                  post.thumbnail = scrapeResult.featuredImage;
+                }
+              }
+              
+              // Clean the content one more time to ensure it's fully cleaned
+              if (fullContent && fullContent.length > 0) {
+                fullContent = cleanArticleContent(fullContent);
+                
+                // Apply SEO rewriting to improve search visibility
+                fullContent = rewriteForSEO(fullContent, {
+                  preserveQuotes: true,
+                  enhanceHeadings: true,
+                  addKeywords: true,
+                });
+                
+                // Update reading time based on content
+                const words = fullContent.replace(/<[^>]*>/g, "").split(/\s+/).length;
+                const minutes = Math.ceil(words / 200);
+                post.readingTime = `${minutes} min read`;
+              }
+            } catch (error) {
+              contentScrapingFailed = true;
+              const errorMsg = `Error scraping full content for ${post.slug}: ${error}`;
+              console.error(`${logPrefix} ${errorMsg}`);
+              
+              // Log more details about the error
+              if (error instanceof Error) {
+                console.error(`${logPrefix} Error details: ${error.message}`);
+                console.error(`${logPrefix} Post URL: ${post.sourceUrl}`);
+              }
+              
+              errors.push(errorMsg);
             }
-            
-            errors.push(errorMsg);
           }
         }
 
         // Enforce minimum content length (only save "real" articles)
-        // Reduced minimum from 350 to 200 characters to allow more posts
+        // Primary rule: Articles must be at least 550 words (good for SEO)
         const contentToUse = fullContent || post.content || "";
-        const plainTextLength = contentToUse.replace(/<[^>]*>/g, "").trim().length;
+        const plainText = contentToUse.replace(/<[^>]*>/g, "").trim();
+        const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
         
-        if (!contentToUse || plainTextLength < 200) {
+        const MIN_WORDS_REQUIRED = 550;
+        
+        if (!contentToUse || wordCount < MIN_WORDS_REQUIRED) {
           skippedShort++;
           
           // Log detailed information about why it was skipped
           if (skippedShort === 1 || skippedShort % 50 === 0) {
-            console.log(`[Scraper] Skipped ${skippedShort} posts (too short).`);
+            console.log(`${logPrefix} Skipped ${skippedShort} posts (too short).`);
             if (skippedShort === 1) {
-              console.log(`[Scraper] Example: "${post.title.substring(0, 50)}..." - Content length: ${plainTextLength} chars`);
-              console.log(`[Scraper] Source URL: ${post.sourceUrl || "N/A"}`);
-              console.log(`[Scraper] Full content scraping ${contentScrapingFailed ? "FAILED" : "succeeded but content too short"}`);
+              console.log(`${logPrefix} Example: "${post.title.substring(0, 50)}..." - Word count: ${wordCount} words (minimum required: ${MIN_WORDS_REQUIRED} words)`);
+              console.log(`${logPrefix} Source URL: ${post.sourceUrl || "N/A"}`);
+              console.log(`${logPrefix} Full content scraping ${contentScrapingFailed ? "FAILED" : "succeeded but content too short (need " + MIN_WORDS_REQUIRED + "+ words)"}`);
             }
           }
           
           // Stop processing if we've skipped too many (likely a systematic issue)
           if (skippedShort >= 100 && skippedShort % 100 === 0) {
             const warningMsg = `⚠️ Warning: Skipped ${skippedShort} posts due to short content. This may indicate an issue with content extraction. Consider checking the website's HTML structure or content selectors.`;
-            console.warn(`[Scraper] ${warningMsg}`);
+            console.warn(`${logPrefix} ${warningMsg}`);
             updateProgress(sessionId, {
               message: warningMsg,
             });
@@ -341,10 +370,11 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
           // Update existing post (duplicate)
           // Note: Updates don't count toward the limit - we only limit NEW posts
           skippedDuplicate++;
-          if (skippedDuplicate % 50 === 0) {
-            console.log(`[Scraper] Found ${skippedDuplicate} duplicates so far. Continuing to find new posts...`);
+          if (skippedDuplicate === 1 || skippedDuplicate % 50 === 0) {
+            console.log(`[Scraper] ✓ Duplicate check: Post already exists (${skippedDuplicate} duplicates found so far). Updating existing post...`);
+            console.log(`[Scraper] Status: ${newPostsCount} new posts, ${updatedPostsCount} updates, ${skippedDuplicate} duplicates checked`);
             updateProgress(sessionId, {
-              message: `Found ${skippedDuplicate} duplicates, ${newPostsCount} new posts saved. Continuing...`,
+              message: `Checking duplicates... ${skippedDuplicate} duplicates found, ${newPostsCount} new posts saved, ${updatedPostsCount} updated.`,
             });
           }
           const updated = await prisma.post.update({
@@ -371,6 +401,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
           // The limit check at the start of the loop only checks newPostsCount
         } else {
           // Create new post - ensure slug is unique
+          console.log(`${logPrefix} ✓ New post detected: "${post.title.substring(0, 60)}..." - Saving to database`);
           let uniqueSlug = post.slug;
           let slugExists = await prisma.post.findUnique({
             where: { slug: uniqueSlug },
@@ -416,7 +447,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         skippedError++;
         const errorMsg = `Error saving post ${post.slug}: ${error}`;
         if (skippedError % 10 === 0) {
-          console.error(`[Scraper] ${skippedError} errors so far. Continuing...`);
+          console.error(`${logPrefix} ${skippedError} errors so far. Continuing...`);
         }
         errors.push(errorMsg);
       }
@@ -434,7 +465,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         newLimit = increasePageLimit(website.id, 'main');
         pageLimitIncreased = (newLimit > oldLimit);
         if (pageLimitIncreased) {
-          console.log(`[Scraper] All ${savedPosts.length} posts were duplicates. Increased page limit: ${oldLimit} → ${newLimit}`);
+          console.log(`${logPrefix} All ${savedPosts.length} posts were duplicates. Increased page limit: ${oldLimit} → ${newLimit}`);
         }
       }
       
@@ -460,7 +491,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
         message += ` Per-run limit of ${MAX_NEW_POSTS_PER_RUN} NEW posts was reached; remaining posts will be handled by future runs or schedules.`;
       }
       
-      console.log(`[Scraper] Summary: ${newPostsCount} new, ${updatedPostsCount} updated, ${skippedDuplicate} duplicates, ${skippedShort} too short, ${skippedError} errors`);
+      console.log(`${logPrefix} Summary: ${newPostsCount} new, ${updatedPostsCount} updated, ${skippedDuplicate} duplicates, ${skippedShort} too short, ${skippedError} errors`);
       
       updateProgress(sessionId, {
         status: 'completed',
@@ -490,7 +521,7 @@ async function runScraperInBackground(sessionId: string, websiteId: string) {
       console.error("Error creating log:", logError);
     }
 
-    console.log(`Scraping completed for session ${sessionId}: ${newPostsCount} new posts, ${updatedPostsCount} updated posts`);
+    console.log(`${logPrefix} Scraping completed for session ${sessionId}: ${newPostsCount} new posts, ${updatedPostsCount} updated posts`);
   } catch (error) {
     console.error("Scraping error:", error);
     

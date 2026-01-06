@@ -4,21 +4,26 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
 interface Ad {
   id: string;
   title: string;
-  imageUrl: string;
+  imageUrl: string | null;
   linkUrl: string;
+  adCode: string | null;
+  width: number | null;
+  height: number | null;
   placement: string;
   isActive: boolean;
   createdAt: string;
 }
 
 const placements = [
-  { value: "sidebar", label: "Sidebar" },
-  { value: "inline", label: "Inline (inside article)" },
+  { value: "inline", label: "Blog Details Page (Inside Content) - Auto at 30%, 60%, 90%" },
+  { value: "sidebar", label: "Sidebar - After Related Articles" },
+  { value: "mobile", label: "Mobile - 100% × 250-280px (Top, Sidebar, Bottom)" },
   { value: "footer", label: "Footer" },
 ];
 
@@ -28,9 +33,8 @@ export default function AdsAdminPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     title: "",
-    imageUrl: "",
-    linkUrl: "",
-    placement: "sidebar",
+    adCode: "",
+    placement: "inline",
   });
 
   const fetchAds = async () => {
@@ -51,8 +55,8 @@ export default function AdsAdminPage() {
   }, []);
 
   const handleCreate = async () => {
-    if (!form.title || !form.linkUrl) {
-      alert("Please fill title and link URL");
+    if (!form.title || !form.adCode) {
+      alert("Please fill title and ad code");
       return;
     }
     setSaving(true);
@@ -60,14 +64,28 @@ export default function AdsAdminPage() {
       const res = await fetch("/api/admin/ads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          title: form.title,
+          adCode: form.adCode,
+          placement: form.placement,
+          linkUrl: "#", // Required field but not used
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create ad");
-      setForm({ title: "", imageUrl: "", linkUrl: "", placement: form.placement });
+      if (!res.ok) {
+        console.error("API Error:", data);
+        throw new Error(data.error || `Failed to create ad (Status: ${res.status})`);
+      }
+      setForm({ 
+        title: "", 
+        adCode: "",
+        placement: form.placement 
+      });
       fetchAds();
+      alert("Ad created successfully!");
     } catch (e: any) {
-      alert(e.message || "Failed to create ad");
+      console.error("Error creating ad:", e);
+      alert(`Error: ${e.message || "Failed to create ad. Please check the console for details."}`);
     } finally {
       setSaving(false);
     }
@@ -116,15 +134,16 @@ export default function AdsAdminPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-[#111827]">Title</label>
+              <label className="text-sm font-medium text-[#111827]">Title *</label>
               <Input
                 value={form.title}
                 onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                 placeholder="Short label for this ad"
+                required
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-[#111827]">Placement</label>
+              <label className="text-sm font-medium text-[#111827]">Placement *</label>
               <select
                 className="border border-[#E5E7EB] rounded-md px-3 py-2 text-sm"
                 value={form.placement}
@@ -137,24 +156,24 @@ export default function AdsAdminPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-[#111827]">
-                Image URL <span className="text-[#9CA3AF]">(optional)</span>
-              </label>
-              <Input
-                value={form.imageUrl}
-                onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-                placeholder="Optional – leave empty for link‑only ad"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-[#111827]">Link URL</label>
-              <Input
-                value={form.linkUrl}
-                onChange={(e) => setForm((f) => ({ ...f, linkUrl: e.target.value }))}
-                placeholder="https://..."
-              />
-            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-[#111827]">
+              Ad Code (HTML/JavaScript) *
+            </label>
+            <Textarea
+              value={form.adCode}
+              onChange={(e) => setForm((f) => ({ ...f, adCode: e.target.value }))}
+              placeholder="Paste your ad code here. The slot will automatically adjust to the ad dimensions."
+              className="font-mono text-sm min-h-[200px]"
+              rows={10}
+              required
+            />
+            <p className="text-xs text-[#6B7280]">
+              The ad slot will automatically detect and adjust to your ad&apos;s width and height. 
+              For column ads (e.g., 120px wide), the slot will automatically become responsive.
+            </p>
           </div>
           <Button
             onClick={handleCreate}
@@ -203,7 +222,7 @@ export default function AdsAdminPage() {
                       </span>
                     </div>
                     <div className="text-[11px] text-[#6B7280] truncate max-w-xs md:max-w-md">
-                      {ad.linkUrl}
+                      {ad.adCode ? "Ad Code Configured" : "No Ad Code"}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">

@@ -12,17 +12,21 @@ import {
   Clock,
   BarChart3,
   Megaphone,
+  AlertTriangle,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Websites", href: "/admin/websites", icon: Globe },
+  { name: "All Blogs", href: "/admin/all-blogs", icon: BookOpen },
   { name: "Posts", href: "/admin/posts", icon: FileText },
   { name: "Blog Analysis", href: "/admin/blog-analysis", icon: BarChart3 },
   { name: "Scraper", href: "/admin/scraper", icon: Play },
   { name: "Schedule", href: "/admin/schedule", icon: Clock },
   { name: "Fix Content", href: "/admin/fix-content", icon: Wand2 },
+  { name: "Short Blogs", href: "/admin/short-blogs", icon: AlertTriangle },
   { name: "Ads", href: "/admin/ads", icon: Megaphone },
   { name: "Logs", href: "/admin/logs", icon: FileSearch },
 ];

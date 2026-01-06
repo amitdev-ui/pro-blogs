@@ -8,17 +8,21 @@ const globalForPrisma = globalThis as unknown as {
 function getDatabaseUrl(): string {
   const url = process.env.DATABASE_URL || "";
   if (!url) return "";
-  
-  // If URL already has query parameters, append to them
-  if (url.includes("?")) {
-    if (!url.includes("connect_timeout")) {
-      return `${url}&connect_timeout=5`;
-    }
-    return url;
-  } else {
-    // Add query parameters
-    return `${url}?connect_timeout=5`;
+  const sslAccept = process.env.MYSQL_SSL || ""; // e.g., "strict" or "accept_invalid_certs"
+  const sslCert = process.env.MYSQL_SSL_CERT || ""; // relative to ./prisma folder
+  let final = url;
+  const hasQuery = final.includes("?");
+  const qp = (key: string, value: string) => (hasQuery ? `&${key}=${value}` : `?${key}=${value}`);
+  if (!final.includes("connect_timeout")) {
+    final = `${final}${qp("connect_timeout", "5")}`;
   }
+  if (sslAccept && !final.includes("sslaccept")) {
+    final = `${final}${qp("sslaccept", sslAccept)}`;
+  }
+  if (sslCert && !final.includes("sslcert")) {
+    final = `${final}${qp("sslcert", sslCert)}`;
+  }
+  return final;
 }
 
 export const prisma =
