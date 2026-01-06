@@ -50,7 +50,14 @@ async function testAllWebsites() {
           // Try scraping full content
           if (firstPost.sourceUrl && firstPost.sourceUrl !== website.url) {
             const fullContent = await scraper.scrapeFullPost(firstPost.sourceUrl);
-            console.log(`   Full Content: ${fullContent ? `✅ ${fullContent.length} chars` : "❌ No"}`);
+            const contentStr =
+              typeof fullContent === "string"
+                ? fullContent
+                : (fullContent && typeof (fullContent as any).content === "string"
+                    ? (fullContent as any).content
+                    : "");
+            const len = contentStr.length;
+            console.log(`   Full Content: ${len > 0 ? `✅ ${len} chars` : "❌ No"}`);
           }
 
           results.push({

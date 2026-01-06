@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import HeroSection from "@/components/HeroSection";
 import FeaturedArticle from "@/components/FeaturedArticle";
 import BlogGrid from "@/components/BlogGrid";
@@ -113,7 +114,7 @@ export default async function ArticlesPage({ searchParams }: ArticlesPageProps) 
                     Top Ad Slot (100% × 250-280px)
                   </h3>
                   <p className="text-xs text-[#9CA3AF] text-center max-w-md">
-                    Add ads with placement "Mobile" in the admin panel to display here. Accepts ads from 250px to 280px height.
+                    Add ads with placement &quot;Mobile&quot; in the admin panel to display here. Accepts ads from 250px to 280px height.
                   </p>
                 </div>
               </div>
@@ -164,7 +165,7 @@ export default async function ArticlesPage({ searchParams }: ArticlesPageProps) 
                     Middle Ad Slot (100% × 250-280px)
                   </h3>
                   <p className="text-xs text-[#9CA3AF] text-center max-w-md">
-                    Add ads with placement "Mobile" in the admin panel to display here. Accepts ads from 250px to 280px height.
+                    Add ads with placement &quot;Mobile&quot; in the admin panel to display here. Accepts ads from 250px to 280px height.
                   </p>
                 </div>
               </div>
@@ -214,7 +215,7 @@ export default async function ArticlesPage({ searchParams }: ArticlesPageProps) 
                     Bottom Ad Slot (100% × 250-280px)
                   </h3>
                   <p className="text-xs text-[#9CA3AF] text-center max-w-md">
-                    Add ads with placement "Mobile" in the admin panel to display here. Accepts ads from 250px to 280px height.
+                    Add ads with placement &quot;Mobile&quot; in the admin panel to display here. Accepts ads from 250px to 280px height.
                   </p>
                 </div>
               </div>

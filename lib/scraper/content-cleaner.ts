@@ -9,9 +9,7 @@ export function cleanArticleContent(html: string, isTechCrunch: boolean = false)
     return "";
   }
 
-  const $ = cheerio.load(html, {
-    decodeEntities: false,
-  });
+  const $ = cheerio.load(html);
 
   // Remove scripts, styles, and meta tags
   $("script, style, noscript, meta, link[rel='stylesheet']").remove();
@@ -259,7 +257,8 @@ export function cleanArticleContent(html: string, isTechCrunch: boolean = false)
       const childTag = child.prop("tagName")?.toLowerCase() || "";
       if (["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "img", "figure"].includes(childTag)) {
         // Only unwrap if the div doesn't have meaningful attributes
-        const attrs = Object.keys($el[0]?.attribs || {});
+        const el: any = $el.get(0) as any;
+        const attrs = Object.keys(el?.attribs || {});
         if (attrs.length === 0 || (attrs.length === 1 && attrs[0] === "class")) {
           $el.replaceWith(child);
         }
@@ -280,7 +279,8 @@ export function cleanArticleContent(html: string, isTechCrunch: boolean = false)
       keepAttrs.push("href", "target", "rel");
     } else if (["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "blockquote", "strong", "em", "code", "pre"].includes(tagName)) {
       // Keep class for styling if needed, but remove most attributes
-      const attrs = Object.keys($el[0]?.attribs || {});
+      const el: any = $el.get(0) as any;
+      const attrs = Object.keys(el?.attribs || {});
       attrs.forEach((attr) => {
         if (!["class", "id"].includes(attr)) {
           $el.removeAttr(attr);
@@ -288,7 +288,8 @@ export function cleanArticleContent(html: string, isTechCrunch: boolean = false)
       });
     } else {
       // For other elements, remove most attributes
-      const attrs = Object.keys($el[0]?.attribs || {});
+      const el: any = $el.get(0) as any;
+      const attrs = Object.keys(el?.attribs || {});
       attrs.forEach((attr) => {
         if (!keepAttrs.includes(attr) && !["class", "id"].includes(attr)) {
           $el.removeAttr(attr);

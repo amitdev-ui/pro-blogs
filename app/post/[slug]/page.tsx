@@ -331,7 +331,7 @@ export default async function PostPage({ params }: PostPageProps) {
                     Top Ad Slot (100% × 250-280px)
                 </h3>
                   <p className="text-xs text-[#9CA3AF] leading-relaxed">
-                    Add ads with placement "Mobile" to display here. Accepts ads from 250px to 280px height.
+                    Add ads with placement &quot;Mobile&quot; to display here. Accepts ads from 250px to 280px height.
                 </p>
               </section>
               )}
@@ -710,7 +710,7 @@ export default async function PostPage({ params }: PostPageProps) {
                   Sidebar Ad Slot (100% × 250-280px)
                 </h3>
                 <p className="text-xs text-[#9CA3AF] leading-relaxed">
-                  Add ads with placement "Mobile" to display here. Accepts ads from 250px to 280px height.
+                  Add ads with placement &quot;Mobile&quot; to display here. Accepts ads from 250px to 280px height.
                 </p>
               </section>
             )}
@@ -763,7 +763,7 @@ export default async function PostPage({ params }: PostPageProps) {
               Bottom Ad Slot (100% × 250-280px)
             </h3>
             <p className="text-xs text-[#9CA3AF] leading-relaxed">
-              Add ads with placement "Mobile" to display here. Accepts ads from 250px to 280px height.
+              Add ads with placement &quot;Mobile&quot; to display here. Accepts ads from 250px to 280px height.
             </p>
           </section>
         )}

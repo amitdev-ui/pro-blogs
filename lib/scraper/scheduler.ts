@@ -112,7 +112,6 @@ async function startScheduledScrapingForAll(
         updateScheduleStatus("all");
       },
       {
-        scheduled: true,
         timezone: "UTC",
       }
     );
@@ -201,7 +200,6 @@ export async function startScheduledScraping(
         }
       },
       {
-        scheduled: true,
         timezone: "UTC",
       }
     );
@@ -635,4 +633,3 @@ export async function runScheduledScrape(
     throw error;
   }
 }
-

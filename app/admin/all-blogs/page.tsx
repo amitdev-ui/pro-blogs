@@ -127,7 +127,7 @@ export default function AllBlogsPage() {
           </div>
           {searchQuery && (
             <p className="text-sm text-[#6B7280] mt-2">
-              Found {posts.length} result(s) for "{searchQuery}"
+              Found {posts.length} result(s) for &quot;{searchQuery}&quot;
             </p>
           )}
         </CardContent>

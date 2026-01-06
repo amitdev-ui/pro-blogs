@@ -12,7 +12,9 @@ export default function AdScriptExecutor() {
         const adContainers = document.querySelectorAll('.ad-content-wrapper');
         
         adContainers.forEach((container) => {
-          const scripts = container.querySelectorAll('script:not([data-executed])');
+          const scripts = Array.from(container.querySelectorAll('script:not([data-executed])')).filter(
+            (el): el is HTMLScriptElement => el instanceof HTMLScriptElement
+          );
           
           scripts.forEach((script) => {
             try {

@@ -85,7 +85,7 @@ export async function verifyToken(token: string, secret: string) {
       const ok = await globalThis.crypto.subtle.verify(
         "HMAC",
         key,
-        base64urlToUint8(s),
+        base64urlToUint8(s) as unknown as BufferSource,
         new TextEncoder().encode(data)
       );
       if (!ok) return null;

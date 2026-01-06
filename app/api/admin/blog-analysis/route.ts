@@ -151,7 +151,8 @@ export async function GET() {
           
           return (
             (() => {
-              const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+              const pt = (p.content || "").replace(/<[^>]*>/g, "").trim();
+              const wordCount = pt.split(/\s+/).filter(word => word.length > 0).length;
               return wordCount >= 550;
             })() &&
             p.thumbnail &&
@@ -200,4 +201,3 @@ export async function GET() {
     );
   }
 }
-

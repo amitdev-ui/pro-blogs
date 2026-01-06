@@ -68,11 +68,17 @@ export async function getPostsFromDB(limit?: number, skip?: number, category?: s
       const categoryLower = category.toLowerCase();
       const filteredPosts = allPosts.filter(post => {
         const postCategory = (post.category || '').toLowerCase();
-        const postTags = typeof post.tags === 'string' 
-          ? JSON.parse(post.tags || '[]').join(' ').toLowerCase()
-          : Array.isArray(post.tags) 
-            ? post.tags.join(' ').toLowerCase()
-            : '';
+        let postTagsArr: string[] = [];
+        try {
+          postTagsArr = typeof post.tags === 'string' 
+            ? JSON.parse(post.tags || '[]') 
+            : Array.isArray(post.tags) 
+              ? post.tags 
+              : [];
+        } catch {
+          postTagsArr = [];
+        }
+        const postTags = postTagsArr.join(' ').toLowerCase();
         const postTitle = (post.title || '').toLowerCase();
         const postDescription = (post.description || '').toLowerCase();
         
@@ -146,11 +152,17 @@ export async function searchPosts(query: string, limit: number = 50) {
       const postTitle = (post.title || '').toLowerCase();
       const postDescription = (post.description || '').toLowerCase();
       const postCategory = (post.category || '').toLowerCase();
-      const postTags = typeof post.tags === 'string' 
-        ? JSON.parse(post.tags || '[]').join(' ').toLowerCase()
-        : Array.isArray(post.tags) 
-          ? post.tags.join(' ').toLowerCase()
-          : '';
+      let postTagsArr: string[] = [];
+      try {
+        postTagsArr = typeof post.tags === 'string' 
+          ? JSON.parse(post.tags || '[]') 
+          : Array.isArray(post.tags) 
+            ? post.tags 
+            : [];
+      } catch {
+        postTagsArr = [];
+      }
+      const postTags = postTagsArr.join(' ').toLowerCase();
       const postAuthor = (post.author || '').toLowerCase();
       
       return postTitle.includes(queryLower) ||
@@ -216,11 +228,17 @@ export async function getPostsCount(category?: string) {
     const categoryLower = category.toLowerCase();
     const filteredCount = allPosts.filter(post => {
       const postCategory = (post.category || '').toLowerCase();
-      const postTags = typeof post.tags === 'string' 
-        ? JSON.parse(post.tags || '[]').join(' ').toLowerCase()
-        : Array.isArray(post.tags) 
-          ? post.tags.join(' ').toLowerCase()
-          : '';
+      let postTagsArr: string[] = [];
+      try {
+        postTagsArr = typeof post.tags === 'string' 
+          ? JSON.parse(post.tags || '[]') 
+          : Array.isArray(post.tags) 
+            ? post.tags 
+            : [];
+      } catch {
+        postTagsArr = [];
+      }
+      const postTags = postTagsArr.join(' ').toLowerCase();
       const postTitle = (post.title || '').toLowerCase();
       const postDescription = (post.description || '').toLowerCase();
       
@@ -317,4 +335,3 @@ export async function getAdsForPlacement(placement: string, limit: number = 3) {
     return [];
   }
 }
-
