@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { prisma } from "@/lib/prisma";
 import WebsitesList from "@/components/admin/WebsitesList";
 import { Button } from "@/components/ui/button";

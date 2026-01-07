@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { MetadataRoute } from 'next';
 import { prisma } from '@/lib/prisma';
 
@@ -5,16 +6,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://yourdomain.com';
 
   // Fetch all posts from database
-  const posts = await prisma.post.findMany({
-    select: {
-      slug: true,
-      updatedAt: true,
-      date: true,
-    },
-    orderBy: {
-      date: 'desc',
-    },
-  });
+  let posts: Array<{ slug: string; updatedAt?: Date | null; date?: Date | null }>;
+  try {
+    posts = await prisma.post.findMany({
+      select: {
+        slug: true,
+        updatedAt: true,
+        date: true,
+      },
+      orderBy: {
+        date: 'desc',
+      },
+    });
+  } catch {
+    posts = [];
+  }
 
   // Generate sitemap entries for posts
   const postEntries: MetadataRoute.Sitemap = posts.map((post) => ({

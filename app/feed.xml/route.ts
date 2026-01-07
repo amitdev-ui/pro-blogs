@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
@@ -7,22 +8,27 @@ export async function GET() {
   const siteDescription = 'Discover curated articles, insights, and inspiration from top creators.';
 
   // Fetch latest 50 posts
-  const posts = await prisma.post.findMany({
-    select: {
-      slug: true,
-      title: true,
-      description: true,
-      date: true,
-      author: true,
-      category: true,
-      coverImage: true,
-      thumbnail: true,
-    },
-    orderBy: {
-      date: 'desc',
-    },
-    take: 50,
-  });
+  let posts: Array<{ slug: string; title: string; description: string | null; date: Date | string; author: string; category: string | null; coverImage: string | null; thumbnail: string | null }> = [];
+  try {
+    posts = await prisma.post.findMany({
+      select: {
+        slug: true,
+        title: true,
+        description: true,
+        date: true,
+        author: true,
+        category: true,
+        coverImage: true,
+        thumbnail: true,
+      },
+      orderBy: {
+        date: 'desc',
+      },
+      take: 50,
+    });
+  } catch {
+    posts = [];
+  }
 
   const rssItems = posts.map((post) => {
     const imageUrl = post.coverImage || post.thumbnail || `${siteUrl}/og-default.jpg`;
